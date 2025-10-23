@@ -1,0 +1,47 @@
+name: client_web
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  firebase_core: ^4.1.1
+  firebase_auth: ^6.1.0
+  cloud_firestore: ^6.0.2
+  go_router: ^16.2.2
+  url_launcher: ^6.3.2
+  carousel_slider: ^5.1.1
+  intl: ^0.20.2
+
+  # === THÊM 2 GÓI NÀY VÀO ĐÂY (bị để sai vị trí trước đó) ===
+  pdf: ^3.11.0
+  printing: ^5.13.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/menu/cover.jpg
+    - assets/menu/mien_bac.jpg
+    - assets/menu/mon_an_dan_choi.jpg
+    - assets/menu/dac_san_nha_ngheo.jpg
+    - assets/menu/mon_chinh.jpg
+    - assets/menu/haisannuong.jpg
+    - assets/menu/mien_trung.jpg
+    - assets/menu/kho_mo_mam_nuong.jpg
+    - assets/menu/mien_nam.jpg
+    - assets/menu/thuc_uong.jpg
+    - assets/dishes/
