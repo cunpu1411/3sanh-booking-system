@@ -45,3 +45,5 @@ flutter:
     - assets/menu/mien_nam.jpg
     - assets/menu/thuc_uong.jpg
     - assets/dishes/
+    - assets/fonts/NotoSans-Regular.ttf
+    - assets/fonts/NotoSans-Bold.ttf

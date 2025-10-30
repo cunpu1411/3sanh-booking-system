@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart'; // <-- THÊM DÒNG NÀY
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'firebase_options.dart';
 import 'menu_page.dart';
 import 'order_page.dart';
 import 'booking_page.dart';
+import 'admin_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +40,7 @@ class ThreeSanhApp extends StatelessWidget {
           },
         ),
         GoRoute(path: '/order', builder: (_, __) => const OrderPage()),
+        GoRoute(path: '/admin', builder: (_, __) => const AdminPage()),
       ],
     );
 
@@ -55,11 +58,11 @@ class ThreeSanhApp extends StatelessWidget {
         return Stack(
           children: [
             Positioned.fill(
-              child:
-                  Image.asset('assets/images/bg_3sanh.jpg', fit: BoxFit.cover),
+              child: Image.asset('assets/images/bg_3sanh.jpg', fit: BoxFit.cover),
             ),
+            // Flutter mới cảnh báo withOpacity, dùng withValues để hết warning:
             Positioned.fill(
-              child: ColoredBox(color: Colors.black.withOpacity(0.04)),
+              child: ColoredBox(color: Colors.black.withValues(alpha: 0.04)),
             ),
             if (child != null) child,
           ],
@@ -82,6 +85,12 @@ class _HomePageState extends State<HomePage> {
   final locationsKey = GlobalKey();
   final careersKey = GlobalKey();
 
+  @override
+  void initState() {
+    super.initState();
+    _logHomepageView(); // <-- GỌI LOG VIEW Ở ĐÂY
+  }
+
   Future<void> _scrollTo(GlobalKey key) async {
     final ctx = key.currentContext;
     if (ctx == null) return;
@@ -93,8 +102,51 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _callHotline() async =>
-      launchUrl(Uri.parse('tel:0765064777'));
+  // ==== Đếm lượt vào homepage (theo ngày + tổng) ====
+  Future<void> _logHomepageView() async {
+    final todayId = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final dailyRef = FirebaseFirestore.instance
+        .collection('metrics')
+        .doc('daily')
+        .collection('days')
+        .doc(todayId);
+
+    final globalRef =
+        FirebaseFirestore.instance.collection('metrics').doc('global');
+
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final dailySnap = await tx.get(dailyRef);
+      if (dailySnap.exists) {
+        final curr = (dailySnap.data()?['views'] ?? 0) as int;
+        tx.update(dailyRef, {
+          'views': curr + 1,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        tx.set(dailyRef, {
+          'date': todayId,
+          'views': 1,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      final globalSnap = await tx.get(globalRef);
+      if (globalSnap.exists) {
+        final curr = (globalSnap.data()?['totalViews'] ?? 0) as int;
+        tx.update(globalRef, {
+          'totalViews': curr + 1,
+          'updatedAt': FieldValue.serverTimestamp()
+        });
+      } else {
+        tx.set(globalRef, {
+          'totalViews': 1,
+          'createdAt': FieldValue.serverTimestamp()
+        });
+      }
+    });
+  }
+
+  Future<void> _callHotline() async => launchUrl(Uri.parse('tel:0765064777'));
 
   @override
   Widget build(BuildContext context) {
@@ -129,13 +181,9 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 24),
                 _NavLink(text: 'Thực đơn', onTap: () => context.go('/menu')),
                 const SizedBox(width: 16),
-                _NavLink(
-                    text: 'Địa điểm',
-                    onTap: () => _scrollTo(locationsKey)),
+                _NavLink(text: 'Địa điểm', onTap: () => _scrollTo(locationsKey)),
                 const SizedBox(width: 16),
-                _NavLink(
-                    text: 'Tuyển dụng',
-                    onTap: () => _scrollTo(careersKey)),
+                _NavLink(text: 'Tuyển dụng', onTap: () => _scrollTo(careersKey)),
                 const SizedBox(width: 16),
                 _NavLink(text: 'Đặt món', onTap: () => context.go('/order')),
                 const Spacer(),
@@ -171,8 +219,7 @@ class _HomePageState extends State<HomePage> {
           _Section(
             key: menuKey,
             title: 'Thực đơn',
-            subtitle:
-                'Món signature, combo nhóm, đồ nhắm – cập nhật theo mùa.',
+            subtitle: 'Món signature, combo nhóm, đồ nhắm – cập nhật theo mùa.',
             child: const _MenuTeaser(),
           ),
 
@@ -276,7 +323,8 @@ class _HeroBanner extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12)),
                   ),
                   child: const Text('ĐẶT BÀN',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 ),
               ],
             ),
@@ -340,11 +388,9 @@ class _Section extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title,
-                style:
-                    t.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+                style: t.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
-            Text(subtitle,
-                style: t.bodyLarge?.copyWith(color: Colors.black54)),
+            Text(subtitle, style: t.bodyLarge?.copyWith(color: Colors.black54)),
             const SizedBox(height: 18),
             child,
           ],
@@ -362,7 +408,6 @@ class _DishCarousel extends StatefulWidget {
 }
 
 class _DishCarouselState extends State<_DishCarousel> {
-  // NOTE: phiên bản package trong dự án của bạn dùng CarouselSliderController
   final _controller = CarouselSliderController();
 
   final _items = const [
@@ -453,7 +498,7 @@ class _CircleArrow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.black.withOpacity(0.35),
+      color: Colors.black.withValues(alpha: 0.35),
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
@@ -512,8 +557,8 @@ class _DishCard extends StatelessWidget {
                           fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(priceText,
-                      style: const TextStyle(
-                          fontSize: 15, color: Colors.brown)),
+                      style:
+                          const TextStyle(fontSize: 15, color: Colors.brown)),
                 ],
               ),
             ),
