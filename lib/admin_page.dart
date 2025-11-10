@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -8,16 +9,34 @@ class AdminPage extends StatefulWidget {
   State<AdminPage> createState() => _AdminPageState();
 }
 
+/* ===================== STATE ===================== */
 class _AdminPageState extends State<AdminPage> {
-  String _activeMenu = 'dashboard';
+  String _activeMenu = 'reservations';
   String _search = '';
   bool _showOnlyNotArrived = false;
+
+  // null = theo hệ thống; true/false = ép thủ công
+  bool? _darkOverride;
+
   final dateFmt = DateFormat('yyyy-MM-dd');
   final timeFmt = DateFormat('HH:mm');
 
+  // ==== mở route mới ở tab trình duyệt ====
+  void _openRouteInNewTab(String path) {
+    String clean = path.trim();
+    if (clean.isEmpty) clean = '/';
+    if (!clean.startsWith('/')) clean = '/$clean';
+    final b = Uri.base;
+    final origin = '${b.scheme}://${b.host}${b.hasPort ? ':${b.port}' : ''}';
+    final url = '$origin/#$clean';
+    launchUrl(Uri.parse(url), webOnlyWindowName: '_blank');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
+    final sysDark =
+        MediaQuery.of(context).platformBrightness == Brightness.dark;
+    final isDark = _darkOverride ?? sysDark;
     final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F7);
     final textColor = isDark ? Colors.white : Colors.black87;
 
@@ -33,19 +52,38 @@ class _AdminPageState extends State<AdminPage> {
           Expanded(
             child: Column(
               children: [
-                _Header(isDark: isDark, title: _activeMenu),
+                _Header(
+                  isDark: isDark,
+                  title: _activeMenu == 'dashboard'
+                      ? 'Admin Dashboard'
+                      : _activeMenu.capitalize(),
+                  onToggleTheme: () => setState(() {
+                    if (_darkOverride == null) {
+                      _darkOverride = !sysDark;
+                    } else if (_darkOverride == true) {
+                      _darkOverride = false;
+                    } else {
+                      _darkOverride = null;
+                    }
+                  }),
+                  overrideState: _darkOverride,
+                  onOpenRoute: (r) => _openRouteInNewTab(r),
+                ),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: switch (_activeMenu) {
-                      'dashboard' => _DashboardSection(isDark: isDark, dateFmt: dateFmt),
+                      'dashboard' => _DashboardSection(
+                          isDark: isDark, dateFmt: dateFmt),
                       'reservations' => _ReservationsSection(
                           isDark: isDark,
                           timeFmt: timeFmt,
                           search: _search,
                           showOnlyNotArrived: _showOnlyNotArrived,
                           onSearch: (v) => setState(() => _search = v),
-                          onFilter: (v) => setState(() => _showOnlyNotArrived = v)),
+                          onFilter: (v) =>
+                              setState(() => _showOnlyNotArrived = v),
+                        ),
                       _ => Center(
                           child: Text(
                             'Chức năng "${_activeMenu.toUpperCase()}" đang phát triển...',
@@ -66,9 +104,10 @@ class _AdminPageState extends State<AdminPage> {
   }
 }
 
-/* =================== SIDEBAR =================== */
+/* ===================== SIDEBAR ===================== */
 class _Sidebar extends StatelessWidget {
-  const _Sidebar({required this.active, required this.onTap, required this.isDark});
+  const _Sidebar(
+      {required this.active, required this.onTap, required this.isDark});
   final String active;
   final Function(String) onTap;
   final bool isDark;
@@ -154,34 +193,128 @@ class _SidebarItem extends StatelessWidget {
   }
 }
 
-/* =================== HEADER =================== */
+/* ===================== HEADER ===================== */
 class _Header extends StatelessWidget {
-  const _Header({required this.isDark, required this.title});
+  const _Header({
+    required this.isDark,
+    required this.title,
+    required this.onToggleTheme,
+    required this.overrideState,
+    required this.onOpenRoute,
+  });
   final bool isDark;
   final String title;
+  final VoidCallback onToggleTheme;
+  final bool? overrideState;
+  final void Function(String route) onOpenRoute;
 
   @override
   Widget build(BuildContext context) {
+    IconData icon;
+    String tooltip;
+    if (overrideState == null) {
+      icon = isDark ? Icons.nightlight_round : Icons.wb_sunny_outlined;
+      tooltip = 'Theo hệ thống • Bấm để chuyển';
+    } else if (overrideState == true) {
+      icon = Icons.nightlight_round;
+      tooltip = 'Đang Dark • Bấm để Light';
+    } else {
+      icon = Icons.wb_sunny_outlined;
+      tooltip = 'Đang Light • Bấm để theo hệ thống';
+    }
+
     return Container(
       height: 60,
       color: isDark ? const Color(0xFF202020) : Colors.black,
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Text(
-        title == 'dashboard' ? 'Admin Dashboard' : title.capitalize(),
-        style: const TextStyle(
-            color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          const SizedBox(width: 8),
+          const Text(
+            '3 SÀNH',
+            style: TextStyle(
+              color: Colors.amber,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.amber,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          const Spacer(),
+          _OpenPageButton(onOpen: onOpenRoute),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: onToggleTheme,
+            tooltip: tooltip,
+            icon: Icon(icon, color: Colors.amber),
+          ),
+        ],
       ),
     );
   }
 }
 
+/* ===================== OPEN PAGE BUTTON ===================== */
+class _OpenPageButton extends StatelessWidget {
+  const _OpenPageButton({required this.onOpen});
+  final void Function(String route) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Open Page (new tab)',
+      icon: const Icon(Icons.open_in_new, color: Colors.amber),
+      onSelected: (value) async {
+        if (value == '__custom__') {
+          final controller = TextEditingController(text: '/');
+          final route = await showDialog<String>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Open custom route'),
+              content: TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  hintText: '/, /order, /menu?tab=1, ...',
+                ),
+                autofocus: true,
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Hủy')),
+                FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Mở')),
+              ],
+            ),
+          );
+          if (route != null && route.isNotEmpty) onOpen(route);
+        } else {
+          onOpen(value);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: '/', child: ListTile(leading: Icon(Icons.home_outlined), title: Text('Homepage (/)'))),
+        const PopupMenuItem(value: '/menu', child: ListTile(leading: Icon(Icons.restaurant_menu), title: Text('Menu (/menu)'))),
+        const PopupMenuItem(value: '/order', child: ListTile(leading: Icon(Icons.shopping_bag_outlined), title: Text('Order (/order)'))),
+        const PopupMenuItem(value: '/book', child: ListTile(leading: Icon(Icons.event_available), title: Text('Booking (/book)'))),
+        const PopupMenuDivider(),
+        const PopupMenuItem(value: '__custom__', child: ListTile(leading: Icon(Icons.edit_note), title: Text('Custom route…'))),
+      ],
+    );
+  }
+}
+
+/* ===================== EXTENSION ===================== */
 extension on String {
   String capitalize() =>
       isEmpty ? this : '${this[0].toUpperCase()}${substring(1)}';
 }
 
-/* =================== DASHBOARD SECTION =================== */
+/* ===================== DASHBOARD SECTION ===================== */
 class _DashboardSection extends StatelessWidget {
   const _DashboardSection({required this.isDark, required this.dateFmt});
   final bool isDark;
@@ -299,7 +432,6 @@ class _BigTotalStream extends StatelessWidget {
 class _BigTotal extends StatelessWidget {
   const _BigTotal({required this.total});
   final int total;
-
   @override
   Widget build(BuildContext context) => Container(
         width: 240,
@@ -311,8 +443,7 @@ class _BigTotal extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
         ),
         padding: const EdgeInsets.all(16),
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Tổng lượt vào',
               style: TextStyle(color: Colors.white70, fontSize: 14)),
           const Spacer(),
@@ -325,7 +456,7 @@ class _BigTotal extends StatelessWidget {
       );
 }
 
-/* =================== RESERVATIONS SECTION =================== */
+/* ===================== RESERVATIONS SECTION ===================== */
 class _ReservationsSection extends StatelessWidget {
   const _ReservationsSection({
     required this.isDark,
@@ -350,8 +481,7 @@ class _ReservationsSection extends StatelessWidget {
         Row(
           children: [
             const Text('Reservations',
-                style:
-                    TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const Spacer(),
             SizedBox(
               width: 280,
@@ -384,17 +514,18 @@ class _ReservationsSection extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Expanded(
-            child: _ReservationsTable(
-          search: search,
-          onlyNotArrived: showOnlyNotArrived,
-          timeFmt: timeFmt,
-        )),
+          child: _ReservationsTable(
+            search: search,
+            onlyNotArrived: showOnlyNotArrived,
+            timeFmt: timeFmt,
+          ),
+        ),
       ],
     );
   }
 }
 
-/* =================== TABLE =================== */
+/* ===================== TABLE ===================== */
 class _ReservationsTable extends StatelessWidget {
   const _ReservationsTable({
     required this.search,
@@ -413,87 +544,78 @@ class _ReservationsTable extends StatelessWidget {
       stream: q.snapshots(),
       builder: (context, snap) {
         if (!snap.hasData) return const LinearProgressIndicator();
-        final docs = snap.data!.docs;
+        final docs = snap.data!.docs.toList()
+          ..sort((a, b) {
+            final ta = (a.data()['createdAt'] as Timestamp?)?.toDate() ??
+                DateTime(0);
+            final tb = (b.data()['createdAt'] as Timestamp?)?.toDate() ??
+                DateTime(0);
+            return tb.compareTo(ta);
+          });
+
         final filtered = docs.where((d) {
           final data = d.data();
           final name = (data['name'] ?? '').toString().toLowerCase();
           final phone = (data['phone'] ?? '').toString();
-          final note = (data['note'] ?? '').toString();
-          final arrived = (data['arrived'] ?? false) as bool;
+          final note = (data['note'] ?? '').toString().toLowerCase();
+          final arrived = data['arrived'] == true;
           final s = search.toLowerCase();
-          if (onlyNotArrived && arrived) return false;
-          return s.isEmpty ||
-              name.contains(s) ||
-              phone.contains(s) ||
-              note.contains(s);
+          final match =
+              name.contains(s) || phone.contains(s) || note.contains(s);
+          return match && (!onlyNotArrived || !arrived);
         }).toList();
 
         return Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF8E1),
-            borderRadius: BorderRadius.circular(14),
+            color: Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor:
-                  WidgetStateProperty.all(Colors.amber.shade100),
-              headingTextStyle: const TextStyle(
-                  fontWeight: FontWeight.bold, color: Colors.black87),
-              columns: const [
-                DataColumn(label: Text('Thời gian')),
-                DataColumn(label: Text('Tên')),
-                DataColumn(label: Text('Điện thoại')),
-                DataColumn(label: Text('Số khách')),
-                DataColumn(label: Text('Ghi chú')),
-                DataColumn(label: Text('Trạng thái')),
-                DataColumn(label: Text('Hành động')),
-              ],
-              rows: [for (final d in filtered) _buildRow(context, d)],
-            ),
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Thời gian')),
+              DataColumn(label: Text('Tên')),
+              DataColumn(label: Text('Điện thoại')),
+              DataColumn(label: Text('Số khách')),
+              DataColumn(label: Text('Ghi chú')),
+              DataColumn(label: Text('Trạng thái')),
+              DataColumn(label: Text('Hành động')),
+            ],
+            rows: filtered.map((doc) {
+              final d = doc.data();
+              final arrived = d['arrived'] == true;
+              final dt = (d['createdAt'] as Timestamp?)?.toDate();
+              return DataRow(cells: [
+                DataCell(Text(dt == null ? '-' : timeFmt.format(dt))),
+                DataCell(Text('${d['name'] ?? ''}')),
+                DataCell(Text('${d['phone'] ?? ''}')),
+                DataCell(Text('${d['guests'] ?? ''}')),
+                DataCell(Text('${d['note'] ?? '-'}')),
+                DataCell(Text(arrived ? 'ĐÃ ĐẾN' : 'CHƯA ĐẾN',
+                    style: TextStyle(
+                        color: arrived ? Colors.green : Colors.orange,
+                        fontWeight: FontWeight.bold))),
+                DataCell(Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        arrived ? Icons.undo : Icons.check,
+                        color: arrived ? Colors.blueGrey : Colors.green,
+                      ),
+                      onPressed: () {
+                        doc.reference.update({'arrived': !arrived});
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () => doc.reference.delete(),
+                    ),
+                  ],
+                )),
+              ]);
+            }).toList(),
           ),
         );
       },
     );
-  }
-
-  DataRow _buildRow(BuildContext context,
-      QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
-    final name = data['name'] ?? '';
-    final phone = data['phone'] ?? '';
-    final people = data['people'] ?? '';
-    final note = data['note'] ?? '';
-    final arrived = data['arrived'] ?? false;
-    final created = (data['createdAt'] as Timestamp?)?.toDate();
-
-    return DataRow(cells: [
-      DataCell(Text(created != null
-          ? DateFormat('dd/MM HH:mm').format(created)
-          : '—')),
-      DataCell(Text(name.toString())),
-      DataCell(Text(phone.toString())),
-      DataCell(Text(people.toString())),
-      DataCell(Text(note.toString().isEmpty ? '—' : note.toString())),
-      DataCell(Text(arrived ? 'ĐÃ ĐẾN' : 'CHƯA ĐẾN',
-          style: TextStyle(
-              color: arrived ? Colors.green : Colors.orange,
-              fontWeight: FontWeight.bold))),
-      DataCell(Row(
-        children: [
-          IconButton(
-            icon: Icon(Icons.check,
-                color: arrived ? Colors.grey : Colors.amber.shade700),
-            onPressed: arrived
-                ? null
-                : () async => await doc.reference.update({'arrived': true}),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete, color: Colors.red),
-            onPressed: () async => await doc.reference.delete(),
-          ),
-        ],
-      )),
-    ]);
   }
 }
