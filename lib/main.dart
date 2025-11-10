@@ -284,7 +284,8 @@ class _HeroBanner extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.asset('assets/images/hero.jpg', fit: BoxFit.cover),
+              Image.asset('assets/images/hero.webp', fit: BoxFit.cover, width: double.infinity, height: 560),
+
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
