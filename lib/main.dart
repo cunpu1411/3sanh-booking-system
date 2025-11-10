@@ -72,6 +72,18 @@ class ThreeSanhApp extends StatelessWidget {
   }
 }
 
+class R {
+  static bool isMobile(BuildContext c) => MediaQuery.of(c).size.width < 700;
+  static bool isTablet(BuildContext c) {
+    final w = MediaQuery.of(c).size.width;
+    return w >= 700 && w < 1024;
+  }
+  static EdgeInsets pagePadding(BuildContext c) =>
+      isMobile(c) ? const EdgeInsets.symmetric(horizontal: 16, vertical: 24)
+                  : const EdgeInsets.symmetric(horizontal: 24, vertical: 36);
+}
+
+
 // =========================== HOMEPAGE ===========================
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -165,49 +177,56 @@ class _HomePageState extends State<HomePage> {
             elevation: 0,
             backgroundColor: Colors.black,
             centerTitle: false,
-            titleSpacing: 20,
+            titleSpacing: R.isMobile(context) ? 12 : 20,
             title: Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.amber.shade600,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text('3 SÀNH',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
+                  child: const Text('3 SÀNH', style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
-                const SizedBox(width: 24),
-                _NavLink(text: 'Thực đơn', onTap: () => context.go('/menu')),
-                const SizedBox(width: 16),
-                _NavLink(text: 'Địa điểm', onTap: () => _scrollTo(locationsKey)),
-                const SizedBox(width: 16),
-                _NavLink(text: 'Tuyển dụng', onTap: () => _scrollTo(careersKey)),
-                const SizedBox(width: 16),
-                _NavLink(text: 'Đặt món', onTap: () => context.go('/order')),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => context.go('/book'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.black,
-                    backgroundColor: Colors.amber.shade600,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                if (!R.isMobile(context)) ...[
+                  const SizedBox(width: 24),
+                  _NavLink(text: 'Trang chủ', onTap: () => context.go('/')),
+                  const SizedBox(width: 16),
+                  _NavLink(text: 'Menu', onTap: () => context.go('/menu')),
+                  const SizedBox(width: 16),
+                  _NavLink(text: 'Địa điểm', onTap: () => _scrollTo(locationsKey)),
+                  const SizedBox(width: 16),
+                  _NavLink(text: 'Tuyển dụng', onTap: () => _scrollTo(careersKey)),
+                  const SizedBox(width: 16),
+                  _NavLink(text: 'Đặt món', onTap: () => context.go('/order')),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => context.go('/book'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.black,
+                      backgroundColor: Colors.amber.shade600,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('ĐẶT BÀN', style: TextStyle(fontWeight: FontWeight.w700)),
                   ),
-                  child: const Text('ĐẶT BÀN',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 16),
-                TextButton.icon(
-                  onPressed: _callHotline,
-                  icon:
-                      const Icon(Icons.call, size: 18, color: Colors.white70),
-                  label: const Text('0765 064 777',
-                      style: TextStyle(color: Colors.white70)),
-                ),
+                  const SizedBox(width: 16),
+                  TextButton.icon(
+                    onPressed: _callHotline,
+                    icon: const Icon(Icons.call, size: 18, color: Colors.white70),
+                    label: const Text('0765 064 777', style: TextStyle(color: Colors.white70)),
+                  ),
+                ] else ...[
+                  const Spacer(),
+                  _MobileMenuButton(
+                    onBook: () => context.go('/book'),
+                    onOrder: () => context.go('/order'),
+                    onMenu: () => context.go('/menu'),
+                    onLocations: () => _scrollTo(locationsKey),
+                    onCareers: () => _scrollTo(careersKey),
+                    onHotline: _callHotline,
+                  ),
+                ],
               ],
             ),
           ),
@@ -277,15 +296,22 @@ class _HeroBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = R.isMobile(context);
+    final aspect = mobile ? (3 / 4) : (16 / 7);
+    final titleSize = mobile ? 26.0 : 64.0;
+    final titleLS = mobile ? 0.5 : 2.0;
+
     return Stack(
       children: [
         AspectRatio(
-          aspectRatio: 16 / 7,
+          aspectRatio: aspect,
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.asset('assets/images/hero.webp', fit: BoxFit.cover, width: double.infinity, height: 560),
-
+              Image.asset(
+                'assets/images/hero.webp',
+                fit: BoxFit.cover,
+              ),
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -308,24 +334,31 @@ class _HeroBanner extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.amber.shade400,
-                    fontSize: 64,
+                    fontSize: titleSize,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
+                    letterSpacing: titleLS,
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 FilledButton(
                   onPressed: () => context.go('/book'),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.amber.shade600,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 28, vertical: 16),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: mobile ? 18 : 28,
+                      vertical: mobile ? 12 : 16,
+                    ),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: const Text('ĐẶT BÀN',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    'ĐẶT BÀN',
+                    style: TextStyle(
+                      fontSize: mobile ? 16 : 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -335,6 +368,8 @@ class _HeroBanner extends StatelessWidget {
     );
   }
 }
+
+
 
 // ====== NAV LINK ======
 class _NavLink extends StatefulWidget {
@@ -705,6 +740,68 @@ class _ListLinks extends StatelessWidget {
             .toList(),
       );
 }
+
+class _MobileMenuButton extends StatelessWidget {
+  final VoidCallback onBook, onOrder, onMenu, onLocations, onCareers, onHotline;
+  const _MobileMenuButton({
+    required this.onBook, required this.onOrder, required this.onMenu,
+    required this.onLocations, required this.onCareers, required this.onHotline,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.menu, color: Colors.white),
+      onPressed: () {
+        showModalBottomSheet(
+          context: context,
+          useSafeArea: true,
+          backgroundColor: const Color(0xFF111111),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+          builder: (_) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(width: 40, height: 4, decoration: BoxDecoration(
+                color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+              ListTile(title: const Text('Trang chủ', style: TextStyle(color: Colors.white)),
+                leading: const Icon(Icons.home, color: Colors.white70),
+                onTap: () { Navigator.pop(context); context.go('/'); },),
+              ListTile(title: const Text('Menu', style: TextStyle(color: Colors.white)),
+                leading: const Icon(Icons.restaurant_menu, color: Colors.white70),
+                onTap: () { Navigator.pop(context); onMenu(); },),
+              ListTile(title: const Text('Địa điểm', style: TextStyle(color: Colors.white)),
+                leading: const Icon(Icons.location_on, color: Colors.white70),
+                onTap: () { Navigator.pop(context); onLocations(); },),
+              ListTile(title: const Text('Tuyển dụng', style: TextStyle(color: Colors.white)),
+                leading: const Icon(Icons.badge, color: Colors.white70),
+                onTap: () { Navigator.pop(context); onCareers(); },),
+              ListTile(title: const Text('Đặt món', style: TextStyle(color: Colors.white)),
+                leading: const Icon(Icons.shopping_bag, color: Colors.white70),
+                onTap: () { Navigator.pop(context); onOrder(); },),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Row(
+                  children: [
+                    Expanded(child: FilledButton(
+                      onPressed: () { Navigator.pop(context); onBook(); },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.amber.shade600, padding: const EdgeInsets.symmetric(vertical: 12)),
+                      child: const Text('ĐẶT BÀN', style: TextStyle(fontWeight: FontWeight.w700)),)),
+                    const SizedBox(width: 12),
+                    IconButton.filled(onPressed: onHotline, icon: const Icon(Icons.call)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 
 // ===== FOOTER =====
 class _Footer extends StatelessWidget {
