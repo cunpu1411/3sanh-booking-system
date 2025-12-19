@@ -1,5 +1,8 @@
 /* ===================== RESERVATIONS SECTION ===================== */
 import 'package:client_web/controllers/reservations/reservations_controller.dart';
+import 'package:client_web/data/mock_data.dart';
+import 'package:client_web/models/reservation_model.dart';
+import 'package:client_web/views/pagination_controls.dart';
 import 'package:client_web/views/reservations_row.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +64,7 @@ class ReservationsSection extends StatelessWidget {
                 style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
               ),
             ),
+            // _buildGenerateButton(context),
             const SizedBox(width: 10),
             _buildDateRange(context),
             const SizedBox(width: 12),
@@ -98,14 +102,17 @@ class ReservationsSection extends StatelessWidget {
         const SizedBox(height: 12),
         Expanded(
           child: Obx(() {
+            final count = controller.paginatedReservations.length;
             return _ReservationsTable(
               timeFmt: timeFmt,
               isDark: isDark,
-              reservations: controller.filteredReservations,
+              reservations: controller.paginatedReservations,
               isLoading: controller.isLoading.value,
             );
           }),
         ),
+        const SizedBox(height: 12),
+        PaginationControls(),
       ],
     );
   }
@@ -113,7 +120,7 @@ class ReservationsSection extends StatelessWidget {
   Widget _buildDateRange(BuildContext context) {
     return Obx(() {
       final controller = Get.find<ReservationsController>();
-      final hasDateRange = controller.dateRangeFilter.value != null;
+      final hasDateRange = controller.serverDateRangeFilter.value != null;
       final dateText = hasDateRange
           ? controller.formattedDateRange
           : 'Chọn khoảng thời gian';
@@ -166,6 +173,105 @@ class ReservationsSection extends StatelessWidget {
       );
     });
   }
+
+  // Generate Data
+  // Widget _buildGenerateButton(BuildContext context) {
+  //   return Tooltip(
+  //     message: 'Thêm 100 reservations test',
+  //     child: ElevatedButton.icon(
+  //       onPressed: () => _generateTestData(context),
+  //       icon: const Icon(Icons.add_circle_outline, size: 16),
+  //       label: const Text('Generate'),
+  //       style: ElevatedButton.styleFrom(
+  //         backgroundColor: const Color(0xFF10B981),
+  //         foregroundColor: Colors.white,
+  //         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  //         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  //       ),
+  //     ),
+  //   );
+  // }
+  //
+  // Future<void> _generateTestData(BuildContext context) async {
+  //   // Show loading snackbar
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     SnackBar(
+  //       content: Row(
+  //         children: [
+  //           SizedBox(
+  //             width: 20,
+  //             height: 20,
+  //             child: CircularProgressIndicator(
+  //               strokeWidth: 2,
+  //               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+  //             ),
+  //           ),
+  //           const SizedBox(width: 12),
+  //           const Text('Đang tạo 100 reservations...'),
+  //         ],
+  //       ),
+  //       duration: const Duration(seconds: 30),
+  //       backgroundColor: const Color(0xFF5697C6),
+  //     ),
+  //   );
+  //
+  //   try {
+  //     final generator = MockDataGenerator();
+  //     await generator.generateAndAddReservations(
+  //       count: 100,
+  //       onProgress: (current, total) {
+  //         // Optional: có thể log progress
+  //         print('Progress: $current/$total');
+  //       },
+  //       onComplete: (message) {
+  //         // Hide loading
+  //         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  //
+  //         // Show success
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Row(
+  //               children: [
+  //                 const Icon(Icons.check_circle, color: Colors.white),
+  //                 const SizedBox(width: 12),
+  //                 Text(message),
+  //               ],
+  //             ),
+  //             backgroundColor: const Color(0xFF10B981),
+  //             duration: const Duration(seconds: 3),
+  //           ),
+  //         );
+  //
+  //         // Refresh data
+  //         Get.find<ReservationsController>().fetchInitReservations();
+  //       },
+  //       onError: (error) {
+  //         // Hide loading
+  //         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  //
+  //         // Show error
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Row(
+  //               children: [
+  //                 const Icon(Icons.error, color: Colors.white),
+  //                 const SizedBox(width: 12),
+  //                 Text('Lỗi: $error'),
+  //               ],
+  //             ),
+  //             backgroundColor: Colors.red,
+  //             duration: const Duration(seconds: 5),
+  //           ),
+  //         );
+  //       },
+  //     );
+  //   } catch (e) {
+  //     ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red),
+  //     );
+  //   }
+  // }
 }
 
 /* ===================== TABLE ===================== */
@@ -179,7 +285,7 @@ class _ReservationsTable extends StatelessWidget {
 
   final DateFormat timeFmt;
   final bool isDark;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> reservations;
+  final List<ReservationModel> reservations;
   final bool isLoading;
   @override
   Widget build(BuildContext context) {
@@ -225,7 +331,8 @@ class _ReservationsTable extends StatelessWidget {
                 final reservation = reservations[index];
                 return ReservationsRow(
                   reservation: reservation,
-                  onTap: () => controller.setSelectedReservation(reservation),
+                  onTap: () =>
+                      controller.selectedReservation.value = reservation,
                   isDark: isDark,
                 );
               },

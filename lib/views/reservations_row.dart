@@ -1,4 +1,5 @@
 import 'package:client_web/controllers/reservations/reservations_controller.dart';
+import 'package:client_web/models/reservation_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,7 +12,7 @@ class ReservationsRow extends StatefulWidget {
     required this.onTap,
     required this.isDark,
   });
-  final QueryDocumentSnapshot<Map<String, dynamic>> reservation;
+  final ReservationModel reservation;
   final VoidCallback onTap;
   final bool isDark;
   @override
@@ -61,7 +62,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
       child: Row(
         children: [
           /// Name Cell
-          Expanded(child: _buildCell(widget.reservation.data()['name'])),
+          Expanded(child: _buildCell(widget.reservation.name)),
 
           /// Contact Cell
           Expanded(child: _buildContactCell()),
@@ -102,7 +103,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
 
   /// Build contact cell with phone number and copy button
   Widget _buildContactCell() {
-    final contact = widget.reservation.data()['phone'];
+    final contact = widget.reservation.phone;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -147,7 +148,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
 
   /// Copy phone number to clipboard
   void _copyPhoneNumber() {
-    Clipboard.setData(ClipboardData(text: widget.reservation.data()['phone']));
+    Clipboard.setData(ClipboardData(text: widget.reservation.phone));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -155,7 +156,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
             const Icon(Icons.check_circle, color: Colors.white, size: 20),
             const SizedBox(width: 12),
             Text(
-              'Phone number copied: ${widget.reservation.data()['phone']}',
+              'Phone number copied: ${widget.reservation.phone}',
               style: const TextStyle(fontSize: 14, color: Colors.white),
             ),
           ],
@@ -187,7 +188,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
             ),
             const SizedBox(width: 6),
             Text(
-              widget.reservation.data()['date'],
+              widget.reservation.date,
               style: TextStyle(
                 fontSize: 13,
                 color: widget.isDark
@@ -213,7 +214,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
               ),
               const SizedBox(width: 6),
               Text(
-                widget.reservation.data()['time'],
+                widget.reservation.time,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -231,7 +232,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
 
   /// Build guests cell with icon and highlight for large groups
   Widget _buildGuestsCell() {
-    final partySize = widget.reservation.data()['partySize'] as int? ?? 0;
+    final partySize = widget.reservation.partySize as int? ?? 0;
     final isLargeGroup = partySize >= 6;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
@@ -264,10 +265,9 @@ class _ReservationsRowState extends State<ReservationsRow> {
 
   /// Build note cell with tooltip for full text
   Widget _buildNoteCell() {
-    return widget.reservation.data()['note'] != null &&
-            widget.reservation.data()['note'].isNotEmpty
+    return widget.reservation.note != null && widget.reservation.note.isNotEmpty
         ? Tooltip(
-            message: widget.reservation.data()['note'],
+            message: widget.reservation.note,
             preferBelow: false,
             waitDuration: const Duration(milliseconds: 300),
             showDuration: const Duration(seconds: 5),
@@ -311,7 +311,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      truncatedNote(widget.reservation.data()['note']),
+                      truncatedNote(widget.reservation.note),
                       style: const TextStyle(
                         fontSize: 13,
                         color: Color(0xFF92400E), // Dark orange
@@ -332,15 +332,16 @@ class _ReservationsRowState extends State<ReservationsRow> {
 
   /// Build status cell with colored badge
   Widget _buildStatusCell() {
+    final status = widget.reservation.status;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       margin: EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: widget.reservation.data()['arrived']
+        color: widget.reservation.status.value == 'arrived'
             ? Colors.green.shade100
             : Colors.orange.shade100,
         border: Border.all(
-          color: widget.reservation.data()['arrived']
+          color: widget.reservation.status.value == 'arrived'
               ? Colors.green.shade100.withValues(alpha: 0.3)
               : Colors.orange.shade100.withValues(alpha: 0.3),
           width: 1,
@@ -351,21 +352,21 @@ class _ReservationsRowState extends State<ReservationsRow> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            widget.reservation.data()['arrived']
+            widget.reservation.status.value == 'arrived'
                 ? Icons.check_circle
                 : Icons.schedule,
             size: 14,
-            color: widget.reservation.data()['arrived']
+            color: widget.reservation.status.value == 'arrived'
                 ? Colors.green.shade800
                 : Colors.orange.shade800,
           ),
           const SizedBox(width: 6), // Slightly more space
           Text(
-            widget.reservation.data()['arrived'] ? 'Arrived' : 'Pending',
+            status.displayName,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600, // Bolder text
-              color: widget.reservation.data()['arrived']
+              color: widget.reservation.status.value == 'arrived'
                   ? Colors.green.shade800
                   : Colors.orange.shade800,
             ),
@@ -381,18 +382,20 @@ class _ReservationsRowState extends State<ReservationsRow> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Tooltip(
-          message: widget.reservation.data()['arrived'] ? 'Chưa đến' : 'Đã đến',
+          message: widget.reservation.status.value == 'arrived'
+              ? 'Chưa đến'
+              : 'Đã đến',
           preferBelow: false,
           child: IconButton(
             icon: Icon(
-              widget.reservation.data()['arrived'] ? Icons.undo : Icons.check,
-              color: widget.reservation.data()['arrived']
+              widget.reservation.status.value == 'arrived'
+                  ? Icons.undo
+                  : Icons.check,
+              color: widget.reservation.status.value == 'arrived'
                   ? Colors.blue
                   : Colors.green,
             ),
-            onPressed: () {
-              controller.toggleArrived(context, widget.reservation);
-            },
+            onPressed: () {},
           ),
         ),
         Tooltip(
