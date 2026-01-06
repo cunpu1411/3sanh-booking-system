@@ -1,31 +1,30 @@
-import 'package:client_web/views/reservations_section.dart';
+import 'package:client_web/bindings/reservations_binding.dart';
+import 'package:client_web/controllers/authentication/auth_controller.dart';
+import 'package:client_web/models/enum/user_role.dart';
+import 'package:client_web/views/widgets/logout/user_profile_menu.dart';
 import 'package:client_web/views/widgets/reservations/notification_badge.dart';
 import 'package:client_web/views/widgets/reservations/notification_panel.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:intl/intl.dart';
+import 'package:get/get_core/src/get_main.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'views/widgets/logout/user_profile_menu.dart';
-
-class AdminPage extends StatefulWidget {
-  const AdminPage({super.key});
+class AdminShell extends StatefulWidget {
+  const AdminShell({super.key, required this.child});
+  final Widget child;
   @override
-  State<AdminPage> createState() => _AdminPageState();
+  State<AdminShell> createState() => _AdminShellState();
 }
 
-/* ===================== STATE ===================== */
-class _AdminPageState extends State<AdminPage> {
-  String _activeMenu = 'reservations';
-
-  // null = theo hệ thống; true/false = ép thủ công
+class _AdminShellState extends State<AdminShell> {
   bool? _darkOverride;
+  @override
+  void initState() {
+    super.initState();
+    ReservationsBinding().dependencies();
+  }
 
-  final dateFmt = DateFormat('yyyy-MM-dd');
-  final timeFmt = DateFormat('HH:mm');
-
-  // ==== mở route mới ở tab trình duyệt ====
   void _openRouteInNewTab(String path) {
     String clean = path.trim();
     if (clean.isEmpty) clean = '/';
@@ -42,7 +41,9 @@ class _AdminPageState extends State<AdminPage> {
         MediaQuery.of(context).platformBrightness == Brightness.dark;
     final isDark = _darkOverride ?? sysDark;
     final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F7);
-    final textColor = isDark ? Colors.white : Colors.black87;
+
+    final currentPath = GoRouterState.of(context).matchedLocation;
+    final activeMenu = _getActiveMenu(currentPath);
 
     return Stack(
       children: [
@@ -51,8 +52,10 @@ class _AdminPageState extends State<AdminPage> {
           body: Row(
             children: [
               _Sidebar(
-                active: _activeMenu,
-                onTap: (m) => setState(() => _activeMenu = m),
+                active: activeMenu,
+                onTap: (menu) {
+                  context.go('/admin/$menu');
+                },
                 isDark: isDark,
               ),
               Expanded(
@@ -60,9 +63,7 @@ class _AdminPageState extends State<AdminPage> {
                   children: [
                     _Header(
                       isDark: isDark,
-                      title: _activeMenu == 'dashboard'
-                          ? 'Admin Dashboard'
-                          : _activeMenu.capitalize!,
+                      title: _getTitle(activeMenu),
                       onToggleTheme: () => setState(() {
                         if (_darkOverride == null) {
                           _darkOverride = !sysDark;
@@ -73,32 +74,9 @@ class _AdminPageState extends State<AdminPage> {
                         }
                       }),
                       overrideState: _darkOverride,
-                      onOpenRoute: (r) => _openRouteInNewTab(r),
+                      onOpenRoute: _openRouteInNewTab,
                     ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: switch (_activeMenu) {
-                          // 'dashboard' => _DashboardSection(
-                          //   isDark: isDark,
-                          //   dateFmt: dateFmt,
-                          // ),
-                          'reservations' => ReservationsSection(
-                            isDark: isDark,
-                            timeFmt: timeFmt,
-                          ),
-                          _ => Center(
-                            child: Text(
-                              'Chức năng "${_activeMenu.toUpperCase()}" đang phát triển...',
-                              style: TextStyle(
-                                color: textColor.withValues(alpha: 0.8),
-                                fontSize: 18,
-                              ),
-                            ),
-                          ),
-                        },
-                      ),
-                    ),
+                    Expanded(child: widget.child),
                   ],
                 ),
               ),
@@ -109,6 +87,28 @@ class _AdminPageState extends State<AdminPage> {
       ],
     );
   }
+
+  /// Get active menu from current path
+  String _getActiveMenu(String path) {
+    if (path.startsWith('/admin/dashboard')) return 'dashboard';
+    if (path.startsWith('/admin/reservations')) return 'reservations';
+    if (path.startsWith('/admin/analytics')) return 'analytics';
+    if (path.startsWith('/admin/settings')) return 'settings';
+    if (path.startsWith('/admin/users')) return 'users';
+    return 'dashboard';
+  }
+
+  /// Get title from menu
+  String _getTitle(String menu) {
+    return switch (menu) {
+      'dashboard' => 'Admin Dashboard',
+      'reservations' => 'Reservations',
+      'analytics' => 'Analytics',
+      'settings' => 'Settings',
+      'users' => 'User Management',
+      _ => 'Admin',
+    };
+  }
 }
 
 /* ===================== SIDEBAR ===================== */
@@ -118,17 +118,43 @@ class _Sidebar extends StatelessWidget {
     required this.onTap,
     required this.isDark,
   });
+
   final String active;
   final Function(String) onTap;
   final bool isDark;
 
   @override
   Widget build(BuildContext context) {
+    final authController = Get.find<AuthController>();
+    final user = authController.user.value;
+    final isAdmin = user?.role == UserRole.admin;
+
+    // 🔥 Define menu items với visibility rules
+    // Format: (id, icon, label, visibleForStaff, visibleForAdmin)
     final items = [
-      ('dashboard', Icons.dashboard, 'Dashboard'),
-      ('reservations', Icons.event_note, 'Reservations'),
-      ('analytics', Icons.analytics_outlined, 'Analytics'),
-      ('settings', Icons.settings_outlined, 'Settings'),
+      ('dashboard', Icons.dashboard, 'Dashboard', false, true), // Chỉ Admin
+      (
+        'reservations',
+        Icons.event_note,
+        'Reservations',
+        true,
+        true,
+      ), // Admin + Staff
+      (
+        'analytics',
+        Icons.analytics_outlined,
+        'Analytics',
+        false,
+        true,
+      ), // Chỉ Admin
+      (
+        'settings',
+        Icons.settings_outlined,
+        'Settings',
+        false,
+        true,
+      ), // Chỉ Admin
+      ('users', Icons.people_outline, 'Users', false, true), // Chỉ Admin
     ];
 
     return Container(
@@ -147,15 +173,58 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 40),
+
+          // Hiển thị menu theo role
           for (final item in items)
-            _SidebarItem(
-              icon: item.$2,
-              label: item.$3,
-              selected: active == item.$1,
-              onTap: () => onTap(item.$1),
-              isDark: isDark,
-            ),
+            if (_canViewMenuItem(item, isAdmin))
+              _SidebarItem(
+                icon: item.$2,
+                label: item.$3,
+                selected: active == item.$1,
+                onTap: () => onTap(item.$1),
+                isDark: isDark,
+              ),
+
           const Spacer(),
+
+          // 🔥 Hiển thị role badge
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: isAdmin
+                    ? Colors.amber.withValues(alpha: 0.2)
+                    : Colors.blue.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isAdmin
+                      ? Colors.amber.withValues(alpha: 0.5)
+                      : Colors.blue.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    isAdmin ? Icons.admin_panel_settings : Icons.person,
+                    size: 16,
+                    color: isAdmin ? Colors.amber : Colors.blue,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    isAdmin ? 'Admin' : 'Staff',
+                    style: TextStyle(
+                      color: isAdmin ? Colors.amber : Colors.blue,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
           const Padding(
             padding: EdgeInsets.only(bottom: 20),
             child: Text(
@@ -167,6 +236,22 @@ class _Sidebar extends StatelessWidget {
       ),
     );
   }
+
+  /// Check if user can view menu item
+  /// item format: (id, icon, label, visibleForStaff, visibleForAdmin)
+  bool _canViewMenuItem(
+    (String, IconData, String, bool, bool) item,
+    bool isAdmin,
+  ) {
+    final visibleForStaff = item.$4;
+    final visibleForAdmin = item.$5;
+
+    if (isAdmin) {
+      return visibleForAdmin;
+    } else {
+      return visibleForStaff;
+    }
+  }
 }
 
 class _SidebarItem extends StatelessWidget {
@@ -177,6 +262,7 @@ class _SidebarItem extends StatelessWidget {
     required this.onTap,
     required this.isDark,
   });
+
   final IconData icon;
   final String label;
   final bool selected;
@@ -219,6 +305,7 @@ class _Header extends StatelessWidget {
     required this.overrideState,
     required this.onOpenRoute,
   });
+
   final bool isDark;
   final String title;
   final VoidCallback onToggleTheme;
@@ -365,167 +452,4 @@ class _OpenPageButton extends StatelessWidget {
       ],
     );
   }
-}
-
-/* ===================== EXTENSION ===================== */
-// extension on String {
-//   String capitalize() =>
-//       isEmpty ? this : '${this[0].toUpperCase()}${substring(1)}';
-// }
-
-/* ===================== DASHBOARD SECTION ===================== */
-// class _DashboardSection extends StatelessWidget {
-//   const _DashboardSection({required this.isDark, required this.dateFmt});
-//   final bool isDark;
-//   final DateFormat dateFmt;
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     final bgCard = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFFF8E1);
-//     final daysRef = FirebaseFirestore.instance
-//         .collection('metrics')
-//         .doc('daily')
-//         .collection('days')
-//         .orderBy('date', descending: true)
-//         .limit(14);
-//     final globalRef = FirebaseFirestore.instance
-//         .collection('metrics')
-//         .doc('global');
-//
-//     return ListView(
-//       children: [
-//         Container(
-//           padding: const EdgeInsets.all(20),
-//           decoration: BoxDecoration(
-//             color: bgCard,
-//             borderRadius: BorderRadius.circular(18),
-//             boxShadow: [
-//               BoxShadow(
-//                 color: Colors.black.withValues(alpha: 0.05),
-//                 blurRadius: 8,
-//               ),
-//             ],
-//           ),
-//           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-//             stream: daysRef.snapshots(),
-//             builder: (context, snap) {
-//               if (!snap.hasData) {
-//                 return const Center(child: CircularProgressIndicator());
-//               }
-//               final docs = snap.data!.docs;
-//               int today = 0;
-//               int last7 = 0;
-//               final nowId = dateFmt.format(DateTime.now());
-//               for (final d in docs) {
-//                 final v = (d.data()['views'] ?? 0) as int;
-//                 final day = (d.data()['date'] ?? d.id) as String;
-//                 if (day == nowId) today += v;
-//               }
-//               for (final d in docs.take(7)) {
-//                 last7 += (d.data()['views'] ?? 0) as int;
-//               }
-//
-//               return Wrap(
-//                 spacing: 20,
-//                 runSpacing: 20,
-//                 children: [
-//                   _StatTile(title: 'Hôm nay', value: today.toString()),
-//                   _StatTile(title: '7 ngày gần nhất', value: last7.toString()),
-//                   _BigTotalStream(globalRef: globalRef),
-//                 ],
-//               );
-//             },
-//           ),
-//         ),
-//       ],
-//     );
-//   }
-// }
-
-class _StatTile extends StatelessWidget {
-  const _StatTile({required this.title, required this.value});
-  final String title;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 200,
-    height: 110,
-    decoration: BoxDecoration(
-      color: Colors.black,
-      borderRadius: BorderRadius.circular(14),
-      boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 6),
-      ],
-    ),
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(color: Colors.white70)),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _BigTotalStream extends StatelessWidget {
-  const _BigTotalStream({required this.globalRef});
-  final DocumentReference<Map<String, dynamic>> globalRef;
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: globalRef.snapshots(),
-      builder: (context, s) {
-        if (!s.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final total = (s.data!.data()?['totalViews'] ?? 0) as int;
-        return _BigTotal(total: total);
-      },
-    );
-  }
-}
-
-class _BigTotal extends StatelessWidget {
-  const _BigTotal({required this.total});
-  final int total;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 240,
-    height: 110,
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF1A1F2B), Color(0xFF2B3650)],
-      ),
-      borderRadius: BorderRadius.circular(14),
-    ),
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Tổng lượt vào',
-          style: TextStyle(color: Colors.white70, fontSize: 14),
-        ),
-        const Spacer(),
-        Text(
-          total.toString(),
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 34,
-          ),
-        ),
-      ],
-    ),
-  );
 }

@@ -61,6 +61,12 @@ class DefaultFirebaseOptions {
     databaseURL: 'https://sanh-9a3b8-default-rtdb.firebaseio.com',
     storageBucket: 'sanh-9a3b8.firebasestorage.app',
     measurementId: 'G-26EZ1ZBTM9',
+    // apiKey: "AIzaSyDTnMcQtsrjwMOhFbyX0FXbPFnQCl0nOMI",
+    // authDomain: "todo-48d54.firebaseapp.com",
+    // projectId: "todo-48d54",
+    // storageBucket: "todo-48d54.firebasestorage.app",
+    // messagingSenderId: "415780624547",
+    // appId: "1:415780624547:web:1e2eca212bd18cfddc8716",
+    // measurementId: "G-7LSYWVQLMP",
   );
-
 }

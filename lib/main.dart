@@ -1,25 +1,55 @@
-import 'package:cloud_firestore/cloud_firestore.dart'; // <-- THÊM DÒNG NÀY
+import 'dart:async';
+import 'package:client_web/change_password_page.dart';
+import 'package:client_web/controllers/authentication/login/change_password_controller.dart';
+import 'package:client_web/controllers/authentication/login/login_controller.dart';
+import 'package:client_web/forgot_password_page.dart';
+import 'package:client_web/login_page.dart';
+import 'package:client_web/models/enum/user_role.dart';
+import 'package:client_web/pages/admin/admin_shell.dart';
+import 'package:client_web/pages/admin/analytic_page.dart';
+import 'package:client_web/pages/admin/reservation_page.dart';
+import 'package:client_web/pages/admin/users_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 
+import 'bindings/auth_binding.dart';
+import 'controllers/authentication/auth_controller.dart';
 import 'firebase_options.dart';
 import 'menu_page.dart';
 import 'order_page.dart';
 import 'booking_page.dart';
 import 'admin_page.dart';
+import 'pages/admin/dashboard_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  if (FirebaseAuth.instance.currentUser == null) {
-    await FirebaseAuth.instance.signInAnonymously();
-  }
+  AuthBinding().dependencies();
   runApp(const ThreeSanhApp());
+}
+
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen(
+      (dynamic _) => notifyListeners(),
+    );
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
 }
 
 class ThreeSanhApp extends StatelessWidget {
@@ -28,7 +58,118 @@ class ThreeSanhApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final router = GoRouter(
+      initialLocation: '/',
+      refreshListenable: GoRouterRefreshStream(
+        FirebaseAuth.instance.authStateChanges(),
+      ),
+      redirect: (context, state) {
+        final authController = Get.find<AuthController>();
+
+        if (authController.isCheckingAuth.value) {
+          return null;
+        }
+
+        final isLoggedIn = authController.isLoggedIn;
+        final user = authController.user.value;
+        final isAdmin = user?.role == UserRole.admin;
+        final isStaff = user?.role == UserRole.staff;
+
+        final currentPath = state.matchedLocation;
+
+        // Protected routes - Cần login
+        final isProtected =
+            currentPath.startsWith('/admin') ||
+            currentPath == '/change-password';
+
+        // None login → redirect to login
+        if (!isLoggedIn && isProtected) {
+          return '/login';
+        }
+
+        // if logged, cant come to /forgot-password
+        if (isLoggedIn &&
+            (currentPath == '/login' || currentPath == '/forgot-password')) {
+          // Staff → redirect to reservations
+          // Admin → redirect to dashboard
+          return isStaff ? '/admin/reservations' : '/admin/dashboard';
+        }
+
+        // admin → redirect based on role
+        if (currentPath == '/admin' || currentPath == '/admin/') {
+          return isStaff ? '/admin/reservations' : '/admin/dashboard';
+        }
+
+        // Staff only redirect to /admin/reservations
+        if (isLoggedIn && isStaff) {
+          final staffForbiddenPaths = [
+            '/admin/dashboard',
+            '/admin/analytics',
+            '/admin/users',
+          ];
+
+          if (staffForbiddenPaths.any((path) => currentPath.startsWith(path))) {
+            return '/admin/reservations'; // Redirect to reservations
+          }
+        }
+
+        return null;
+      },
       routes: [
+        // ===== AUTH ROUTES =====
+        GoRoute(
+          path: '/login',
+          builder: (context, state) => LoginPage(),
+          onExit: (context, state) {
+            Get.delete<LoginController>();
+            return true;
+          },
+        ),
+        GoRoute(
+          path: '/forgot-password',
+          builder: (context, state) => ForgotPasswordPage(),
+        ),
+        GoRoute(
+          path: '/change-password',
+          builder: (context, state) => ChangePasswordPage(),
+          onExit: (context, state) {
+            Get.delete<ChangePasswordController>();
+            return true;
+          },
+        ),
+
+        // ===== ADMIN ROUTES (Nested with ShellRoute) =====
+        ShellRoute(
+          builder: (context, state, child) {
+            return AdminShell(child: child);
+          },
+          routes: [
+            // Dashboard
+            GoRoute(
+              path: '/admin/dashboard',
+              builder: (context, state) => const DashboardPage(),
+            ),
+
+            // Reservations
+            GoRoute(
+              path: '/admin/reservations',
+              builder: (context, state) => const ReservationPage(),
+            ),
+
+            // Analytics
+            GoRoute(
+              path: '/admin/analytics',
+              builder: (context, state) => const AnalyticPage(),
+            ),
+
+            // Users
+            GoRoute(
+              path: '/admin/users',
+              builder: (context, state) => const UsersPage(),
+            ),
+          ],
+        ),
+
+        // ===== PUBLIC ROUTES =====
         GoRoute(path: '/', builder: (_, __) => const HomePage()),
         GoRoute(path: '/book', builder: (_, __) => const BookingPage()),
         GoRoute(
@@ -40,7 +181,6 @@ class ThreeSanhApp extends StatelessWidget {
           },
         ),
         GoRoute(path: '/order', builder: (_, __) => const OrderPage()),
-        GoRoute(path: '/admin', builder: (_, __) => const AdminPage()),
       ],
     );
 
@@ -58,9 +198,11 @@ class ThreeSanhApp extends StatelessWidget {
         return Stack(
           children: [
             Positioned.fill(
-              child: Image.asset('assets/images/bg_3sanh.jpg', fit: BoxFit.cover),
+              child: Image.asset(
+                'assets/images/bg_3sanh.jpg',
+                fit: BoxFit.cover,
+              ),
             ),
-            // Flutter mới cảnh báo withOpacity, dùng withValues để hết warning:
             Positioned.fill(
               child: ColoredBox(color: Colors.black.withValues(alpha: 0.04)),
             ),
@@ -78,11 +220,11 @@ class R {
     final w = MediaQuery.of(c).size.width;
     return w >= 700 && w < 1024;
   }
-  static EdgeInsets pagePadding(BuildContext c) =>
-      isMobile(c) ? const EdgeInsets.symmetric(horizontal: 16, vertical: 24)
-                  : const EdgeInsets.symmetric(horizontal: 24, vertical: 36);
-}
 
+  static EdgeInsets pagePadding(BuildContext c) => isMobile(c)
+      ? const EdgeInsets.symmetric(horizontal: 16, vertical: 24)
+      : const EdgeInsets.symmetric(horizontal: 24, vertical: 36);
+}
 
 // =========================== HOMEPAGE ===========================
 class HomePage extends StatefulWidget {
@@ -100,7 +242,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _logHomepageView(); // <-- GỌI LOG VIEW Ở ĐÂY
+    _logHomepageView();
   }
 
   Future<void> _scrollTo(GlobalKey key) async {
@@ -116,46 +258,52 @@ class _HomePageState extends State<HomePage> {
 
   // ==== Đếm lượt vào homepage (theo ngày + tổng) ====
   Future<void> _logHomepageView() async {
-    final todayId = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final dailyRef = FirebaseFirestore.instance
-        .collection('metrics')
-        .doc('daily')
-        .collection('days')
-        .doc(todayId);
+    try {
+      final todayId = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final dailyRef = FirebaseFirestore.instance
+          .collection('metrics')
+          .doc('daily')
+          .collection('days')
+          .doc(todayId);
 
-    final globalRef =
-        FirebaseFirestore.instance.collection('metrics').doc('global');
+      final globalRef = FirebaseFirestore.instance
+          .collection('metrics')
+          .doc('global');
 
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final dailySnap = await tx.get(dailyRef);
-      if (dailySnap.exists) {
-        final curr = (dailySnap.data()?['views'] ?? 0) as int;
-        tx.update(dailyRef, {
-          'views': curr + 1,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-        tx.set(dailyRef, {
-          'date': todayId,
-          'views': 1,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final dailySnap = await tx.get(dailyRef);
+        if (dailySnap.exists) {
+          final curr = (dailySnap.data()?['views'] ?? 0) as int;
+          tx.update(dailyRef, {
+            'views': curr + 1,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          tx.set(dailyRef, {
+            'date': todayId,
+            'views': 1,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
 
-      final globalSnap = await tx.get(globalRef);
-      if (globalSnap.exists) {
-        final curr = (globalSnap.data()?['totalViews'] ?? 0) as int;
-        tx.update(globalRef, {
-          'totalViews': curr + 1,
-          'updatedAt': FieldValue.serverTimestamp()
-        });
-      } else {
-        tx.set(globalRef, {
-          'totalViews': 1,
-          'createdAt': FieldValue.serverTimestamp()
-        });
-      }
-    });
+        final globalSnap = await tx.get(globalRef);
+        if (globalSnap.exists) {
+          final curr = (globalSnap.data()?['totalViews'] ?? 0) as int;
+          tx.update(globalRef, {
+            'totalViews': curr + 1,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          tx.set(globalRef, {
+            'totalViews': 1,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
+    } catch (e) {
+      // Bỏ qua lỗi khi test (không có Firestore rules)
+      debugPrint('⚠️ Log metrics failed: $e');
+    }
   }
 
   Future<void> _callHotline() async => launchUrl(Uri.parse('tel:0765064777'));
@@ -181,12 +329,18 @@ class _HomePageState extends State<HomePage> {
             title: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.amber.shade600,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text('3 SÀNH', style: TextStyle(fontWeight: FontWeight.w800)),
+                  child: const Text(
+                    '3 SÀNH',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ),
                 if (!R.isMobile(context)) ...[
                   const SizedBox(width: 24),
@@ -194,9 +348,15 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(width: 16),
                   _NavLink(text: 'Menu', onTap: () => context.go('/menu')),
                   const SizedBox(width: 16),
-                  _NavLink(text: 'Địa điểm', onTap: () => _scrollTo(locationsKey)),
+                  _NavLink(
+                    text: 'Địa điểm',
+                    onTap: () => _scrollTo(locationsKey),
+                  ),
                   const SizedBox(width: 16),
-                  _NavLink(text: 'Tuyển dụng', onTap: () => _scrollTo(careersKey)),
+                  _NavLink(
+                    text: 'Tuyển dụng',
+                    onTap: () => _scrollTo(careersKey),
+                  ),
                   const SizedBox(width: 16),
                   _NavLink(text: 'Đặt món', onTap: () => context.go('/order')),
                   const Spacer(),
@@ -205,16 +365,31 @@ class _HomePageState extends State<HomePage> {
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.black,
                       backgroundColor: Colors.amber.shade600,
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    child: const Text('ĐẶT BÀN', style: TextStyle(fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'ĐẶT BÀN',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                   const SizedBox(width: 16),
                   TextButton.icon(
                     onPressed: _callHotline,
-                    icon: const Icon(Icons.call, size: 18, color: Colors.white70),
-                    label: const Text('0765 064 777', style: TextStyle(color: Colors.white70)),
+                    icon: const Icon(
+                      Icons.call,
+                      size: 18,
+                      color: Colors.white70,
+                    ),
+                    label: const Text(
+                      '0765 064 777',
+                      style: TextStyle(color: Colors.white70),
+                    ),
                   ),
                 ] else ...[
                   const Spacer(),
@@ -308,14 +483,15 @@ class _HeroBanner extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.asset(
-                'assets/images/hero.webp',
-                fit: BoxFit.cover,
-              ),
+              Image.asset('assets/images/hero.webp', fit: BoxFit.cover),
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Colors.black87, Colors.transparent, Colors.black87],
+                    colors: [
+                      Colors.black87,
+                      Colors.transparent,
+                      Colors.black87,
+                    ],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                   ),
@@ -369,8 +545,6 @@ class _HeroBanner extends StatelessWidget {
   }
 }
 
-
-
 // ====== NAV LINK ======
 class _NavLink extends StatefulWidget {
   final String text;
@@ -423,8 +597,10 @@ class _Section extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: t.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+            Text(
+              title,
+              style: t.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 6),
             Text(subtitle, style: t.bodyLarge?.copyWith(color: Colors.black54)),
             const SizedBox(height: 18),
@@ -447,18 +623,32 @@ class _DishCarouselState extends State<_DishCarousel> {
   final _controller = CarouselSliderController();
 
   final _items = const [
-    _DishItem('Khoai mạt nướng sốt 3 Sành', 79000,
-        'assets/dishes/khoai_mat_nuong_sot_3_sanh_1.png'),
-    _DishItem('Đậu hũ trứng 3 Sành', 99000,
-        'assets/dishes/dau_hu_trung_1.png'),
-    _DishItem('Tôm xông cay Tiền lửa', 169000,
-        'assets/dishes/tom_xong_cay_tien_lua_mien_nam_1.png'),
-    _DishItem('Cơm ghẹ phủ trứng', 149000,
-        'assets/dishes/com_ghe_phu_trung_1.png'),
-    _DishItem('Chân gà sốt Thái', 99000,
-        'assets/dishes/chan_ga_sot_thai_1.png'),
-    _DishItem('Khoai môn du kích', 119000,
-        'assets/dishes/khoai_mon_du_kich_1.png'),
+    _DishItem(
+      'Khoai mạt nướng sốt 3 Sành',
+      79000,
+      'assets/dishes/khoai_mat_nuong_sot_3_sanh_1.png',
+    ),
+    _DishItem('Đậu hũ trứng 3 Sành', 99000, 'assets/dishes/dau_hu_trung_1.png'),
+    _DishItem(
+      'Tôm xông cay Tiền lửa',
+      169000,
+      'assets/dishes/tom_xong_cay_tien_lua_mien_nam_1.png',
+    ),
+    _DishItem(
+      'Cơm ghẹ phủ trứng',
+      149000,
+      'assets/dishes/com_ghe_phu_trung_1.png',
+    ),
+    _DishItem(
+      'Chân gà sốt Thái',
+      99000,
+      'assets/dishes/chan_ga_sot_thai_1.png',
+    ),
+    _DishItem(
+      'Khoai môn du kích',
+      119000,
+      'assets/dishes/khoai_mon_du_kich_1.png',
+    ),
   ];
 
   int _slidesToShow(double w) {
@@ -473,8 +663,11 @@ class _DishCarouselState extends State<_DishCarousel> {
     final w = MediaQuery.of(context).size.width;
     final show = _slidesToShow(w);
     final viewport = 1 / show;
-    final money =
-        NumberFormat.currency(locale: 'vi_VN', symbol: '', decimalDigits: 0);
+    final money = NumberFormat.currency(
+      locale: 'vi_VN',
+      symbol: '',
+      decimalDigits: 0,
+    );
 
     return Stack(
       alignment: Alignment.center,
@@ -539,10 +732,10 @@ class _CircleArrow extends StatelessWidget {
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: const SizedBox(
+        child: SizedBox(
           width: 40,
           height: 40,
-          child: Icon(Icons.chevron_right, color: Colors.white),
+          child: Icon(icon, color: Colors.white),
         ),
       ),
     );
@@ -580,21 +773,29 @@ class _DishCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child:
-                  Image.asset(image, fit: BoxFit.cover, width: double.infinity),
+              child: Image.asset(
+                image,
+                fit: BoxFit.cover,
+                width: double.infinity,
+              ),
             ),
             Padding(
               padding: const EdgeInsets.all(10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text(priceText,
-                      style:
-                          const TextStyle(fontSize: 15, color: Colors.brown)),
+                  Text(
+                    priceText,
+                    style: const TextStyle(fontSize: 15, color: Colors.brown),
+                  ),
                 ],
               ),
             ),
@@ -695,17 +896,16 @@ class _ListSimple extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        children: items
-            .map(
-              (e) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(e,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                trailing: const Icon(Icons.chevron_right),
-              ),
-            )
-            .toList(),
-      );
+    children: items
+        .map(
+          (e) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(e, style: const TextStyle(fontWeight: FontWeight.w600)),
+            trailing: const Icon(Icons.chevron_right),
+          ),
+        )
+        .toList(),
+  );
 }
 
 // ===== LINKS =====
@@ -720,32 +920,38 @@ class _ListLinks extends StatelessWidget {
   const _ListLinks({super.key, required this.items});
 
   Future<void> _open(String url) async => launchUrl(
-        Uri.parse(url),
-        mode: LaunchMode.externalApplication,
-        webOnlyWindowName: '_blank',
-      );
+    Uri.parse(url),
+    mode: LaunchMode.externalApplication,
+    webOnlyWindowName: '_blank',
+  );
 
   @override
   Widget build(BuildContext context) => Column(
-        children: items
-            .map(
-              (e) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(e.title,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(e.url),
-              ),
-            )
-            .toList(),
-      );
+    children: items
+        .map(
+          (e) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              e.title,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _open(e.url),
+          ),
+        )
+        .toList(),
+  );
 }
 
 class _MobileMenuButton extends StatelessWidget {
   final VoidCallback onBook, onOrder, onMenu, onLocations, onCareers, onHotline;
   const _MobileMenuButton({
-    required this.onBook, required this.onOrder, required this.onMenu,
-    required this.onLocations, required this.onCareers, required this.onHotline,
+    required this.onBook,
+    required this.onOrder,
+    required this.onMenu,
+    required this.onLocations,
+    required this.onCareers,
+    required this.onHotline,
   });
 
   @override
@@ -758,39 +964,103 @@ class _MobileMenuButton extends StatelessWidget {
           useSafeArea: true,
           backgroundColor: const Color(0xFF111111),
           shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
           builder: (_) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: 8),
-              Container(width: 40, height: 4, decoration: BoxDecoration(
-                color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-              ListTile(title: const Text('Trang chủ', style: TextStyle(color: Colors.white)),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                title: const Text(
+                  'Trang chủ',
+                  style: TextStyle(color: Colors.white),
+                ),
                 leading: const Icon(Icons.home, color: Colors.white70),
-                onTap: () { Navigator.pop(context); context.go('/'); },),
-              ListTile(title: const Text('Menu', style: TextStyle(color: Colors.white)),
-                leading: const Icon(Icons.restaurant_menu, color: Colors.white70),
-                onTap: () { Navigator.pop(context); onMenu(); },),
-              ListTile(title: const Text('Địa điểm', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  context.go('/');
+                },
+              ),
+              ListTile(
+                title: const Text(
+                  'Menu',
+                  style: TextStyle(color: Colors.white),
+                ),
+                leading: const Icon(
+                  Icons.restaurant_menu,
+                  color: Colors.white70,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  onMenu();
+                },
+              ),
+              ListTile(
+                title: const Text(
+                  'Địa điểm',
+                  style: TextStyle(color: Colors.white),
+                ),
                 leading: const Icon(Icons.location_on, color: Colors.white70),
-                onTap: () { Navigator.pop(context); onLocations(); },),
-              ListTile(title: const Text('Tuyển dụng', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  onLocations();
+                },
+              ),
+              ListTile(
+                title: const Text(
+                  'Tuyển dụng',
+                  style: TextStyle(color: Colors.white),
+                ),
                 leading: const Icon(Icons.badge, color: Colors.white70),
-                onTap: () { Navigator.pop(context); onCareers(); },),
-              ListTile(title: const Text('Đặt món', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  onCareers();
+                },
+              ),
+              ListTile(
+                title: const Text(
+                  'Đặt món',
+                  style: TextStyle(color: Colors.white),
+                ),
                 leading: const Icon(Icons.shopping_bag, color: Colors.white70),
-                onTap: () { Navigator.pop(context); onOrder(); },),
+                onTap: () {
+                  Navigator.pop(context);
+                  onOrder();
+                },
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 child: Row(
                   children: [
-                    Expanded(child: FilledButton(
-                      onPressed: () { Navigator.pop(context); onBook(); },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.amber.shade600, padding: const EdgeInsets.symmetric(vertical: 12)),
-                      child: const Text('ĐẶT BÀN', style: TextStyle(fontWeight: FontWeight.w700)),)),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          onBook();
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.amber.shade600,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text(
+                          'ĐẶT BÀN',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    IconButton.filled(onPressed: onHotline, icon: const Icon(Icons.call)),
+                    IconButton.filled(
+                      onPressed: onHotline,
+                      icon: const Icon(Icons.call),
+                    ),
                   ],
                 ),
               ),
@@ -801,7 +1071,6 @@ class _MobileMenuButton extends StatelessWidget {
     );
   }
 }
-
 
 // ===== FOOTER =====
 class _Footer extends StatelessWidget {

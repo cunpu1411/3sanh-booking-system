@@ -18,8 +18,13 @@ dependencies:
   go_router: ^16.2.2
   url_launcher: ^6.3.2
   carousel_slider: ^5.1.1
+  # GetX
+  get: ^4.7.2
+  # Utilities
   intl: ^0.20.2
-
+  fl_chart: ^1.1.1
+  dropdown_button2: ^2.3.9
+  shared_preferences: ^2.5.4
   # === THÊM 2 GÓI NÀY VÀO ĐÂY (bị để sai vị trí trước đó) ===
   pdf: ^3.11.0
   printing: ^5.13.4
