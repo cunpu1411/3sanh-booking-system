@@ -1018,14 +1018,7 @@ class ThreeSanhApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // final router = GoRouter(
     //   routes: [
-    //     // GoRoute(path: '/', builder: (_, __) => const HomePage()),
-    //     GoRoute(
-    //       path: '/',
-    //       builder: (context, state) {
-    //         ReservationsBinding().dependencies();
-    //         return AdminPage();
-    //       },
-    //     ),
+    //     GoRoute(path: '/', builder: (_, __) => const HomePage()),
     //     GoRoute(path: '/book', builder: (_, __) => const BookingPage()),
     //     GoRoute(
     //       path: '/menu',
@@ -1046,7 +1039,7 @@ class ThreeSanhApp extends StatelessWidget {
     //   ],
     // );
     final router = GoRouter(
-      initialLocation: '/login',
+      initialLocation: '/',
       refreshListenable: GoRouterRefreshStream(
         FirebaseAuth.instance.authStateChanges(),
       ),
@@ -1158,6 +1151,7 @@ class ThreeSanhApp extends StatelessWidget {
         ),
 
         // ===== PUBLIC ROUTES =====
+        GoRoute(path: '/', builder: (_, __) => const HomePage()),
         GoRoute(path: '/book', builder: (_, __) => const BookingPage()),
         GoRoute(
           path: '/menu',
