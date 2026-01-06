@@ -15,16 +15,34 @@ abstract class ReservationRepository {
     DateTime? startDate,
     DateTime? endDate,
     ReservationStatus? status,
-    String orderBy = 'createdAt',
+    String orderBy = 'date',
     bool ascending = false,
   });
 
   /// Update reservations by id
-  Future<ReservationModel?> updateReservations(
+  Future<ReservationModel?> updateReservation(
     String id,
     Map<String, dynamic> data,
   );
 
   /// Delete reservations
   Future<ReservationModel?> deleteReservations(String id);
+
+  /// Stream to listen new reservations
+  Stream<QuerySnapshot<Map<String, dynamic>>> listenForNewReservations();
+
+  /// Get reservations by id list
+  Future<List<ReservationModel>> getReservationsByIdList(List<String> idList);
+
+  /// Create new reservation
+  Future<ReservationModel> createReservation(ReservationModel reservation);
+
+  /// Check duplicate reservation
+  Future<bool> checkDuplicateReservation({
+    required String phone,
+    required String date,
+    required String time,
+    String? excludeId,
+    bool checkActiveOnly = true,
+  });
 }

@@ -22,7 +22,9 @@ dependencies:
   get: ^4.7.2
   # Utilities
   intl: ^0.20.2
+  fl_chart: ^1.1.1
   dropdown_button2: ^2.3.9
+  shared_preferences: ^2.5.4
   # === THÊM 2 GÓI NÀY VÀO ĐÂY (bị để sai vị trí trước đó) ===
   pdf: ^3.11.0
   printing: ^5.13.4

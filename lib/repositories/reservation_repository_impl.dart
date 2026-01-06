@@ -8,7 +8,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class ReservationRepositoryImplement implements ReservationRepository {
   final FirebaseFirestore _firestore;
   final String _collection = 'reservations';
+
   ReservationRepositoryImplement(this._firestore);
+
   @override
   Future<ReservationModel?> deleteReservations(String id) async {
     // TODO: implement deleteReservations
@@ -54,11 +56,11 @@ class ReservationRepositoryImplement implements ReservationRepository {
       /// Apply date range filter
       if (startDate != null) {
         final startDateFormat = _formatDate(startDate);
-        query = query.where('date', isGreaterThanOrEqualTo: startDateFormat);
+        query = query.where(orderBy, isGreaterThanOrEqualTo: startDateFormat);
       }
       if (endDate != null) {
         final endDateFormat = _formatDate(endDate);
-        query = query.where('date', isLessThanOrEqualTo: endDateFormat);
+        query = query.where(orderBy, isLessThanOrEqualTo: endDateFormat);
       }
 
       /// Apply status filter
@@ -96,14 +98,32 @@ class ReservationRepositoryImplement implements ReservationRepository {
   }
 
   @override
-  Future<ReservationModel?> updateReservations(
+  Future<ReservationModel?> updateReservation(
     String id,
     Map<String, dynamic> data,
   ) async {
-    // TODO: implement updateReservations
+    // TODO: implement updateReservation
     try {
-      await _firestore.collection(_collection).doc(id).update(data);
-      return getById(id);
+      final docRef = await _firestore.collection(_collection).doc(id);
+      // Check if document exists
+      final docSnapshot = await docRef.get();
+      if (!docSnapshot.exists) {
+        print('[Repository] Reservation not found: $id');
+        return null;
+      }
+      final updateData = {...data, 'updateAt': FieldValue.serverTimestamp()};
+      await docRef.update(updateData);
+      // Fetch and return updated document
+      final updatedDoc = await docRef.get();
+      if (!updatedDoc.exists) {
+        throw DataException('Failed to fetch updated reservation');
+      }
+      return ReservationModel.fromFirestore(updatedDoc);
+    } on FirebaseException catch (e) {
+      throw DataException(
+        'Failed to update reservation: ${e.message}',
+        originalError: e,
+      );
     } catch (e) {
       throw DataException('Failed to update reservations', originalError: e);
     }
@@ -112,5 +132,102 @@ class ReservationRepositoryImplement implements ReservationRepository {
   /// Helpers
   String _formatDate(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Stream<QuerySnapshot<Map<String, dynamic>>> listenForNewReservations() {
+    final now = Timestamp.now();
+    return _firestore
+        .collection(_collection)
+        .where('createdAt', isGreaterThan: now)
+        .orderBy('createdAt', descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
+  @override
+  Future<List<ReservationModel>> getReservationsByIdList(
+    List<String> idList,
+  ) async {
+    try {
+      if (idList.isEmpty) return [];
+      final List<ReservationModel> result = [];
+      // Firestore limits 'whereIn' queries to 10 items per query
+      for (int i = 0; i < idList.length; i += 10) {
+        final chunk = idList.sublist(
+          i,
+          i + 10 > idList.length ? idList.length : i + 10,
+        );
+        final querySnapshot = await _firestore
+            .collection(_collection)
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        result.addAll(
+          querySnapshot.docs
+              .map((doc) => ReservationModel.fromFirestore(doc))
+              .toList(),
+        );
+      }
+      return result;
+    } catch (e) {
+      throw DataException(
+        'Failed to get reservations by id list',
+        originalError: e,
+      );
+    }
+  }
+
+  @override
+  Future<ReservationModel> createReservation(
+    ReservationModel reservation,
+  ) async {
+    print('[Reservation repository] Create new reservation ...');
+    try {
+      final docRef = _firestore.collection(_collection).doc();
+      final newReservation = reservation.copyWith(
+        id: docRef.id,
+        createdAt: Timestamp.now(),
+      );
+      await docRef.set(newReservation.toFirestore());
+      return newReservation;
+    } catch (e) {
+      throw DataException('Failed to create reservation', originalError: e);
+    }
+  }
+
+  @override
+  Future<bool> checkDuplicateReservation({
+    required String phone,
+    required String date,
+    required String time,
+    String? excludeId,
+    bool checkActiveOnly = true,
+  }) async {
+    try {
+      Query query = _firestore
+          .collection(_collection)
+          .where('phone', isEqualTo: phone)
+          .where('date', isEqualTo: date)
+          .where('time', isEqualTo: time);
+      if (checkActiveOnly) {
+        query = query.where(
+          'status',
+          whereIn: [
+            ReservationStatus.pending.value,
+            ReservationStatus.confirmed.value,
+          ],
+        );
+      }
+      final querySnapshot = await query.get();
+      if (excludeId != null) {
+        return querySnapshot.docs.any((doc) => doc.id != excludeId);
+      }
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      throw DataException(
+        'Failed to check duplicate reservation',
+        originalError: e,
+      );
+    }
   }
 }

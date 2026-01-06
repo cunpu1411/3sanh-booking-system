@@ -28,6 +28,7 @@ class ReservationsSection extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
+              flex: 3,
               child: TextField(
                 controller: controller.searchController,
                 decoration: InputDecoration(
@@ -64,7 +65,7 @@ class ReservationsSection extends StatelessWidget {
                 style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
               ),
             ),
-            // _buildGenerateButton(context),
+            _buildGenerateButton(context),
             const SizedBox(width: 10),
             _buildDateRange(context),
             const SizedBox(width: 12),
@@ -97,6 +98,8 @@ class ReservationsSection extends StatelessWidget {
                 ],
               );
             }),
+            const SizedBox(width: 16),
+            _buildCreateButton(context),
           ],
         ),
         const SizedBox(height: 12),
@@ -114,6 +117,52 @@ class ReservationsSection extends StatelessWidget {
         const SizedBox(height: 12),
         PaginationControls(),
       ],
+    );
+  }
+
+  Widget _buildCreateButton(BuildContext context) {
+    final controller = Get.find<ReservationsController>();
+
+    return Tooltip(
+      message: 'Tạo đặt chỗ mới',
+      preferBelow: true,
+      waitDuration: const Duration(milliseconds: 500),
+      child: ElevatedButton.icon(
+        onPressed: () => controller.showReservationDialog(context),
+        icon: const Icon(Icons.add_circle_outline, size: 18),
+        label: const Text(
+          'Thêm đặt chỗ',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        style:
+            ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF5697C6),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              elevation: 0,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ).copyWith(
+              backgroundColor: WidgetStateProperty.resolveWith<Color>((
+                Set<WidgetState> states,
+              ) {
+                if (states.contains(WidgetState.hovered)) {
+                  return const Color(0xFF4A86B5);
+                }
+                return const Color(0xFF5697C6);
+              }),
+              elevation: WidgetStateProperty.resolveWith<double>((
+                Set<WidgetState> states,
+              ) {
+                if (states.contains(WidgetState.hovered)) {
+                  return 2;
+                }
+                return 0;
+              }),
+            ),
+      ),
     );
   }
 
@@ -175,103 +224,100 @@ class ReservationsSection extends StatelessWidget {
   }
 
   // Generate Data
-  // Widget _buildGenerateButton(BuildContext context) {
-  //   return Tooltip(
-  //     message: 'Thêm 100 reservations test',
-  //     child: ElevatedButton.icon(
-  //       onPressed: () => _generateTestData(context),
-  //       icon: const Icon(Icons.add_circle_outline, size: 16),
-  //       label: const Text('Generate'),
-  //       style: ElevatedButton.styleFrom(
-  //         backgroundColor: const Color(0xFF10B981),
-  //         foregroundColor: Colors.white,
-  //         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-  //         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-  //       ),
-  //     ),
-  //   );
-  // }
-  //
-  // Future<void> _generateTestData(BuildContext context) async {
-  //   // Show loading snackbar
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     SnackBar(
-  //       content: Row(
-  //         children: [
-  //           SizedBox(
-  //             width: 20,
-  //             height: 20,
-  //             child: CircularProgressIndicator(
-  //               strokeWidth: 2,
-  //               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-  //             ),
-  //           ),
-  //           const SizedBox(width: 12),
-  //           const Text('Đang tạo 100 reservations...'),
-  //         ],
-  //       ),
-  //       duration: const Duration(seconds: 30),
-  //       backgroundColor: const Color(0xFF5697C6),
-  //     ),
-  //   );
-  //
-  //   try {
-  //     final generator = MockDataGenerator();
-  //     await generator.generateAndAddReservations(
-  //       count: 100,
-  //       onProgress: (current, total) {
-  //         // Optional: có thể log progress
-  //         print('Progress: $current/$total');
-  //       },
-  //       onComplete: (message) {
-  //         // Hide loading
-  //         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  //
-  //         // Show success
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(
-  //             content: Row(
-  //               children: [
-  //                 const Icon(Icons.check_circle, color: Colors.white),
-  //                 const SizedBox(width: 12),
-  //                 Text(message),
-  //               ],
-  //             ),
-  //             backgroundColor: const Color(0xFF10B981),
-  //             duration: const Duration(seconds: 3),
-  //           ),
-  //         );
-  //
-  //         // Refresh data
-  //         Get.find<ReservationsController>().fetchInitReservations();
-  //       },
-  //       onError: (error) {
-  //         // Hide loading
-  //         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  //
-  //         // Show error
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(
-  //             content: Row(
-  //               children: [
-  //                 const Icon(Icons.error, color: Colors.white),
-  //                 const SizedBox(width: 12),
-  //                 Text('Lỗi: $error'),
-  //               ],
-  //             ),
-  //             backgroundColor: Colors.red,
-  //             duration: const Duration(seconds: 5),
-  //           ),
-  //         );
-  //       },
-  //     );
-  //   } catch (e) {
-  //     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red),
-  //     );
-  //   }
-  // }
+  Widget _buildGenerateButton(BuildContext context) {
+    return Tooltip(
+      message: 'Thêm 100 reservations test',
+      child: ElevatedButton.icon(
+        onPressed: () => _generateTestData(context),
+        icon: const Icon(Icons.add_circle_outline, size: 16),
+        label: const Text('Generate'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF10B981),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _generateTestData(BuildContext context) async {
+    // Show loading snackbar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text('Đang tạo 100 reservations...'),
+          ],
+        ),
+        duration: const Duration(seconds: 30),
+        backgroundColor: const Color(0xFF5697C6),
+      ),
+    );
+
+    try {
+      final generator = MockDataGenerator();
+      await generator.generateAndAddReservations(
+        count: 15,
+        onProgress: (current, total) {
+          // Optional: có thể log progress
+          print('Progress: $current/$total');
+        },
+        onComplete: (message) {
+          // Hide loading
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+          // Show success
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Text(message),
+                ],
+              ),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        },
+        onError: (error) {
+          // Hide loading
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+          // Show error
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Text('Lỗi: $error'),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
 }
 
 /* ===================== TABLE ===================== */

@@ -1,15 +1,18 @@
 import 'dart:async';
 
+import 'package:client_web/core/exceptions/data_exception.dart';
 import 'package:client_web/helpers/snackbar_helpers.dart';
+import 'package:client_web/models/enum/reservation_source.dart';
 import 'package:client_web/models/enum/reservation_status.dart';
 import 'package:client_web/models/reservation_model.dart';
 import 'package:client_web/services/reservation_service.dart';
+import 'package:client_web/views/widgets/reservations/add_reservation_dialog.dart';
+import 'package:client_web/views/widgets/reservations/view_reservation_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 class ReservationsController extends GetxController {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ReservationService _service;
 
   /// Data cached
@@ -19,12 +22,22 @@ class ReservationsController extends GetxController {
 
   /// Notifications
   final hasNewReservations = false.obs;
-  final newBookingCount = 0.obs;
+  final newReservationsCount = 0.obs;
   StreamSubscription? _newReservationsSubscription;
+  DateTime? _lastNotificationCheck;
+  final newReservationsList = <ReservationModel>[].obs;
+  Timer? _autoRefreshTimer;
+  final Duration _autoRefreshInterval = const Duration(minutes: 60);
+  Timer? _countdownTimer;
+  final remainingTimeForNextRefresh = 0.obs;
+  bool _isTimerActive = false;
+  final isNotificationPanelOpen = false.obs;
+  bool _isFirstEmission = true;
 
   /// Loading states
   final isLoadingMore = false.obs;
   final isLoading = false.obs;
+  final isCreating = false.obs;
 
   /// Filters -SERVER SIDE
   final Rx<ReservationStatus?> statusFilter = Rx<ReservationStatus?>(null);
@@ -112,12 +125,15 @@ class ReservationsController extends GetxController {
     _setupSearchListener();
     _setUpQuickFilters();
     onServerFilterChanged();
+    _listenForNewReservations();
   }
 
   @override
   void onClose() {
     _debounceTimer?.cancel();
     _newReservationsSubscription?.cancel();
+    _autoRefreshTimer?.cancel();
+    _countdownTimer?.cancel();
     searchController.removeListener(_onSearchChanged);
     searchController.dispose();
     searchFocusNode.dispose();
@@ -133,6 +149,7 @@ class ReservationsController extends GetxController {
 
     // Set date range filter for server side (bf 7days - af 30 days)
     final now = DateTime.now();
+    _lastNotificationCheck = now;
     final sevenDaysAgo = now.subtract(const Duration(days: 7));
     final thirtyDaysLater = now.add(const Duration(days: 30));
     // Fetch default range from server
@@ -146,7 +163,7 @@ class ReservationsController extends GetxController {
       final result = await _service.getReservationsInDefaultRange(
         limit: 500,
         status: statusFilter.value,
-        orderBy: 'createdAt',
+        orderBy: 'date',
         ascending: dateAscending.value,
       );
       _cachedReservations.clear();
@@ -154,9 +171,11 @@ class ReservationsController extends GetxController {
       _lastFetchDocument = result.lastDocument;
       _lastLoadTime = Timestamp.now();
       hasMoreData.value = result.hasMore;
+      print('Fetched ${result.items.length} reservations in default range.');
       // Apply client filters
       _applyClientFilters();
     } catch (e) {
+      print('Error fetching default range: $e');
       errorMessage.value = 'Error fetching reservations: $e';
     } finally {
       isLoading.value = false;
@@ -181,7 +200,7 @@ class ReservationsController extends GetxController {
         startDate: serverDateRangeFilter.value?.start,
         endDate: serverDateRangeFilter.value?.end,
         status: statusFilter.value,
-        orderBy: 'createdAt',
+        orderBy: 'date',
         ascending: dateAscending.value,
       );
       print('Fetched ${result.items.length} reservations from server.');
@@ -477,6 +496,8 @@ class ReservationsController extends GetxController {
     bool fromQuickFilter = true,
   }) {
     serverDateRangeFilter.value = dateRange;
+    _clearNotifications();
+    _listenForNewReservations();
     if (!fromQuickFilter) {
       _isManuallySettingDateRange = true;
       showReservationsToday.value = false;
@@ -530,29 +551,483 @@ class ReservationsController extends GetxController {
 
   /// =============== Notification ===============
   void _listenForNewReservations() {
+    _newReservationsSubscription?.cancel();
+    _isFirstEmission = true;
+    final dateRange = _getDateRange();
     // Listen for new reservations
-    _newReservationsSubscription = _firestore
-        .collection('reservations')
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .listen((snapshot) {
-          if (_lastLoadTime == null) return;
-          // Check for new reservations after last load time
-          final newReservations = snapshot.docs.where((doc) {
-            final createdAt = doc['createdAt'] as Timestamp;
-            return createdAt.compareTo(_lastLoadTime!) > 0;
-          }).toList();
-          if (newReservations.isNotEmpty) {
-            hasNewReservations.value = true;
-            newBookingCount.value += newReservations.length;
-          }
-        });
+    _newReservationsSubscription = _service
+        .getNewReservationsStream(range: dateRange)
+        .listen(
+          (newReservation) {
+            if (_isFirstEmission) {
+              // Skip first emission to avoid counting existing reservations
+              _isFirstEmission = false;
+              return;
+            }
+            if (newReservation.isNotEmpty) {
+              _handleNewReservations(newReservation);
+            }
+          },
+          onError: (error) {
+            print('Error listening for new reservations: $error');
+          },
+        );
+  }
+
+  DateTimeRange _getDateRange() {
+    if (serverDateRangeFilter.value != null) {
+      return serverDateRangeFilter.value!;
+    }
+    return _service.getDefaultDateRange();
+  }
+
+  void _handleNewReservations(List<ReservationModel> newReservations) {
+    print('>> New reservations received: ${newReservations.length}');
+    for (var reservation in newReservations) {
+      final exists = newReservationsList.any((r) => r.id == reservation.id);
+      if (!exists) {
+        newReservationsList.insert(0, reservation);
+        newReservationsCount.value++;
+      }
+    }
+    if (newReservationsCount.value > 0) {
+      hasNewReservations.value = true;
+      // Start timer for auto refresh
+      if (!_isTimerActive) {
+        _startAutoRefresh();
+      }
+      if (newReservationsCount.value > 15) {
+        _autoRefresh();
+      }
+    }
+  }
+
+  void _startAutoRefresh() {
+    if (_isTimerActive) {
+      return;
+    }
+    _isTimerActive = true;
+    remainingTimeForNextRefresh.value = _autoRefreshInterval.inSeconds;
+    // Start countdown timer
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (remainingTimeForNextRefresh.value > 0) {
+        remainingTimeForNextRefresh.value--;
+      } else {
+        timer.cancel();
+      }
+    });
+    // Start auto refresh timer
+    _autoRefreshTimer = Timer(_autoRefreshInterval, () {
+      _autoRefresh();
+    });
   }
 
   Future<void> refreshReservations() async {
+    await _fullReset();
+  }
+
+  Future<void> _fullReset() async {
+    newReservationsList.clear();
+    newReservationsCount.value = 0;
     hasNewReservations.value = false;
-    newBookingCount.value = 0;
+    isNotificationPanelOpen.value = false;
+
+    // Clear search
+    clearSearchInput();
+
+    // Clear filters
+    showOnlyNotArrived.value = false;
+    showReservationsToday.value = false;
+    showReservationsThisWeek.value = false;
+    statusFilter.value = null;
+
+    // Reset pagination
+    currentPage.value = 1;
+
+    // Fetch data
     await fetchInitReservations();
+
+    // Restart auto refresh timer
+    _isTimerActive = false;
+
+    // Restart listener
+    _listenForNewReservations();
+  }
+
+  Future<void> _autoRefresh() async {
+    print('>> Auto refreshing reservations ...');
+    // Reset timer
+    _autoRefreshTimer?.cancel();
+    _countdownTimer?.cancel();
+    _isTimerActive = false;
+    await _fullReset();
+  }
+
+  // Clear notifications
+  void _clearNotifications() {
+    newReservationsList.clear();
+    newReservationsCount.value = 0;
+    hasNewReservations.value = false;
+    isNotificationPanelOpen.value = false;
+
+    _autoRefreshTimer?.cancel();
+    _countdownTimer?.cancel();
+    _isTimerActive = false;
+    remainingTimeForNextRefresh.value = 0;
+  }
+
+  // Toggle notification panel
+  void toggleNotificationPanel() {
+    isNotificationPanelOpen.value = !isNotificationPanelOpen.value;
+  }
+
+  void closeNotificationPanel() {
+    isNotificationPanelOpen.value = false;
+  }
+
+  String get formattedCountdown {
+    final minutes = (remainingTimeForNextRefresh.value ~/ 60)
+        .toString()
+        .padLeft(2, '0');
+    final seconds = (remainingTimeForNextRefresh.value % 60).toString().padLeft(
+      2,
+      '0',
+    );
+    return '$minutes:$seconds';
+  }
+
+  /// =============== CRUD ===============
+  void showReservationDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => const AddReservationDialog(),
+      barrierDismissible: false,
+    );
+  }
+
+  /// Show Edit Dialog
+  void showEditDialog({
+    required BuildContext context,
+    required ReservationModel reservation,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => AddReservationDialog(
+        existingReservation: reservation, // ← Pass existing reservation
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  /// Show View Dialog (Read-only)
+  void showViewDialog({
+    required BuildContext context,
+    required ReservationModel reservation,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => ViewReservationDialog(reservation: reservation),
+      barrierDismissible: true,
+    );
+  }
+
+  /// Create reservation
+  Future<void> createReservation({
+    required BuildContext context,
+    required String name,
+    required String phone,
+    required String date,
+    required String time,
+    required int partySize,
+    required ReservationSource source,
+    required ReservationStatus status,
+    String? note,
+  }) async {
+    print('[Reservation controller] Create new reservation ...');
+    try {
+      isCreating.value = true;
+      final createdReservation = await _service.createReservation(
+        name: name,
+        phone: phone,
+        date: date,
+        time: time,
+        partySize: partySize,
+        source: source,
+        status: status,
+        note: note,
+      );
+      // Close dialog
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+      if (context.mounted) {
+        SnackbarHelper.showSuccess(context, 'Reservation successful!');
+      }
+      // Refresh list
+      await fetchInitReservations();
+    } on DataException catch (e) {
+      if (e.message == 'DUPLICATE') {
+        if (context.mounted) {
+          _showDuplicateWarning(context, phone, date, time);
+        }
+      } else {
+        if (context.mounted) {
+          SnackbarHelper.showError(context, e.message);
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        SnackbarHelper.showError(context, 'Creating reservation failed');
+      }
+    } finally {
+      isCreating.value = false;
+    }
+  }
+
+  /// Show duplicate warning dialog
+  void _showDuplicateWarning(
+    BuildContext context,
+    String phone,
+    String date,
+    String time,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.warning_rounded,
+                color: Colors.orange,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 16),
+            const Text(
+              'Reservation duplicate',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'A Reservation already exists: ',
+              style: TextStyle(fontSize: 16, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Phone: $phone',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Month: $date', style: const TextStyle(fontSize: 13)),
+                  Text('Time: $time', style: const TextStyle(fontSize: 13)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.blue.shade700,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Please double-check the information before creating',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.blue.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: const Text(
+              'Close',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Update reservation
+  Future<void> updateReservation({
+    required BuildContext context,
+    required String id,
+    String? name,
+    String? phone,
+    String? date,
+    String? time,
+    int? partySize,
+    ReservationStatus? status,
+    String? note,
+  }) async {
+    print('[Reservation controller] Update reservation: $id');
+    try {
+      isUpdating.value = true;
+
+      final updatedReservation = await _service.updateReservation(
+        id: id,
+        name: name,
+        phone: phone,
+        date: date,
+        time: time,
+        partySize: partySize,
+        status: status,
+        note: note,
+      );
+
+      // Close dialog
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+
+      if (updatedReservation != null) {
+        if (context.mounted) {
+          SnackbarHelper.showSuccess(context, 'Cập nhật thành công!');
+        }
+        // Refresh list
+        await fetchInitReservations();
+      } else {
+        if (context.mounted) {
+          SnackbarHelper.showError(context, 'Cập nhật thất bại');
+        }
+      }
+    } on DataException catch (e) {
+      if (e.message == 'DUPLICATE') {
+        if (context.mounted) {
+          _showDuplicateWarning(context, phone ?? '', date ?? '', time ?? '');
+        }
+      } else {
+        if (context.mounted) {
+          SnackbarHelper.showError(context, e.message);
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        SnackbarHelper.showError(context, 'Cập nhật thất bại: $e');
+      }
+    } finally {
+      isUpdating.value = false;
+    }
+  }
+
+  /// Update reservation status (Quick change from dropdown)
+  Future<void> updateReservationStatus({
+    required BuildContext context,
+    required String reservationId,
+    required ReservationStatus newStatus,
+  }) async {
+    print(
+      '[Reservation controller] Quick update status: $reservationId -> ${newStatus.value}',
+    );
+
+    // Show loading indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text('Đang cập nhật trạng thái...'),
+          ],
+        ),
+        duration: const Duration(seconds: 30),
+        backgroundColor: const Color(0xFF5697C6),
+      ),
+    );
+
+    try {
+      final updatedReservation = await _service.updateReservation(
+        id: reservationId,
+        status: newStatus,
+      );
+
+      // Hide loading
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      if (updatedReservation != null) {
+        if (context.mounted) {
+          SnackbarHelper.showSuccess(
+            context,
+            'Đã cập nhật trạng thái: ${newStatus.displayName}',
+          );
+        }
+        // Refresh list
+        await fetchInitReservations();
+      } else {
+        if (context.mounted) {
+          SnackbarHelper.showError(context, 'Cập nhật thất bại');
+        }
+      }
+    } catch (e) {
+      // Hide loading
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      if (context.mounted) {
+        SnackbarHelper.showError(context, 'Cập nhật thất bại: $e');
+      }
+    }
   }
 
   /// =============== Helpers ===============

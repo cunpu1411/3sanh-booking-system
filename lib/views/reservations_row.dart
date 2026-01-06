@@ -1,4 +1,5 @@
 import 'package:client_web/controllers/reservations/reservations_controller.dart';
+import 'package:client_web/models/enum/reservation_status.dart';
 import 'package:client_web/models/reservation_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +30,10 @@ class _ReservationsRowState extends State<ReservationsRow> {
       onExit: (_) => setState(() => isHovered = false),
       child: GestureDetector(
         onTap: () => widget.onTap(),
+        onDoubleTap: () => controller.showViewDialog(
+          context: context,
+          reservation: widget.reservation,
+        ),
         child: Obx(() => _buildRow()),
       ),
     );
@@ -77,7 +82,7 @@ class _ReservationsRowState extends State<ReservationsRow> {
           Flexible(flex: 3, fit: FlexFit.tight, child: _buildNoteCell()),
 
           /// Status
-          Expanded(child: _buildStatusCell()),
+          Expanded(child: _buildStatusDropdown()),
 
           /// Actions
           Expanded(child: _buildActions()),
@@ -377,27 +382,118 @@ class _ReservationsRowState extends State<ReservationsRow> {
     );
   }
 
+  Widget _buildStatusDropdown() {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 150), // ← Giới hạn width
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<ReservationStatus>(
+          value: widget.reservation.status,
+          isDense: true,
+          isExpanded: true, // ← Quan trọng: Cho phép expand trong container
+          icon: const Icon(Icons.arrow_drop_down, size: 18),
+          borderRadius: BorderRadius.circular(12),
+          onChanged: (ReservationStatus? newStatus) {
+            if (newStatus != null && newStatus != widget.reservation.status) {
+              controller.updateReservationStatus(
+                context: context,
+                reservationId: widget.reservation.id,
+                newStatus: newStatus,
+              );
+            }
+          },
+          items: ReservationStatus.values.map((status) {
+            return DropdownMenuItem<ReservationStatus>(
+              value: status,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _getStatusIcon(status),
+                    size: 12,
+                    color: _getStatusColor(status),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    // ← Thay Text bằng Flexible
+                    child: Text(
+                      status.displayName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _getStatusColor(status),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          selectedItemBuilder: (BuildContext context) {
+            return ReservationStatus.values.map((status) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getStatusColor(status).withValues(alpha: 0.15),
+                  border: Border.all(
+                    color: _getStatusColor(status).withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _getStatusIcon(status),
+                      size: 12,
+                      color: _hexToColor(status.colorHex),
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      // ← Thay Text bằng Flexible
+                      child: Text(
+                        status.displayName,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _getStatusColor(status),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList();
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildActions() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Tooltip(
-          message: widget.reservation.status.value == 'arrived'
-              ? 'Chưa đến'
-              : 'Đã đến',
+          message: 'Chỉnh sửa',
           preferBelow: false,
+          waitDuration: const Duration(milliseconds: 500),
           child: IconButton(
-            icon: Icon(
-              widget.reservation.status.value == 'arrived'
-                  ? Icons.undo
-                  : Icons.check,
-              color: widget.reservation.status.value == 'arrived'
-                  ? Colors.blue
-                  : Colors.green,
-            ),
-            onPressed: () {},
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            color: const Color(0xFF5697C6),
+            onPressed: () {
+              controller.showEditDialog(
+                context: context,
+                reservation: widget.reservation,
+              );
+            },
+            splashRadius: 20,
+            padding: const EdgeInsets.all(8),
           ),
         ),
+        const SizedBox(width: 4),
         Tooltip(
           message: 'Xóa',
           preferBelow: false,
@@ -413,6 +509,63 @@ class _ReservationsRowState extends State<ReservationsRow> {
         ),
       ],
     );
+  }
+
+  ///=== Helpers ====
+  /// Get status icon
+  IconData _getStatusIcon(dynamic status) {
+    final statusValue = status.value ?? status.toString();
+    switch (statusValue) {
+      case 'pending':
+        return Icons.schedule;
+      case 'confirmed':
+        return Icons.check_circle_outline;
+      case 'arrived':
+        return Icons.check_circle;
+      case 'noShow':
+        return Icons.cancel;
+      default:
+        return Icons.info;
+    }
+  }
+
+  /// Get status color
+  Color _getStatusColor(dynamic status) {
+    final statusValue = status.value ?? status.toString();
+    switch (statusValue) {
+      case 'pending':
+        return Colors.orange.shade600;
+      case 'confirmed':
+        return Colors.blue.shade600;
+      case 'arrived':
+        return Colors.green.shade600;
+      case 'noShow':
+        return Colors.red.shade600;
+      default:
+        return Colors.grey.shade600;
+    }
+  }
+
+  Color _hexToColor(String hex) {
+    final hexCode = hex.replaceAll('#', '');
+    return Color(int.parse('FF$hexCode', radix: 16));
+  }
+
+  /// Get source icon
+  IconData _getSourceIcon(dynamic source) {
+    final sourceValue = source.value ?? source.toString();
+    switch (sourceValue) {
+      case 'phone':
+        return Icons.phone;
+      case 'website':
+        return Icons.web;
+      case 'walkin':
+        return Icons.directions_walk;
+      case 'other':
+        return Icons.more_horiz;
+      default:
+        return Icons.source;
+    }
   }
 
   String truncatedNote(String? note) {

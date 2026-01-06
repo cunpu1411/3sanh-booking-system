@@ -955,8 +955,21 @@
 //     );
 //   }
 // }
+import 'dart:async';
+
 import 'package:client_web/bindings/reservations_binding.dart';
+import 'package:client_web/change_password_page.dart';
+import 'package:client_web/controllers/authentication/login/change_password_controller.dart';
+import 'package:client_web/controllers/authentication/login/login_controller.dart';
+import 'package:client_web/forgot_password_page.dart';
+import 'package:client_web/login_page.dart';
+import 'package:client_web/models/enum/user_role.dart';
+import 'package:client_web/pages/admin/admin_shell.dart';
+import 'package:client_web/pages/admin/analytic_page.dart';
+import 'package:client_web/pages/admin/reservation_page.dart';
+import 'package:client_web/pages/admin/users_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -965,16 +978,37 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 
+import 'bindings/auth_binding.dart';
+import 'controllers/authentication/auth_controller.dart';
 import 'firebase_options.dart';
 import 'menu_page.dart';
 import 'order_page.dart';
 import 'booking_page.dart';
 import 'admin_page.dart';
+import 'pages/admin/dashboard_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  AuthBinding().dependencies();
   runApp(const ThreeSanhApp());
+}
+
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen(
+      (dynamic _) => notifyListeners(),
+    );
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
 }
 
 class ThreeSanhApp extends StatelessWidget {
@@ -982,16 +1016,148 @@ class ThreeSanhApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // final router = GoRouter(
+    //   routes: [
+    //     // GoRoute(path: '/', builder: (_, __) => const HomePage()),
+    //     GoRoute(
+    //       path: '/',
+    //       builder: (context, state) {
+    //         ReservationsBinding().dependencies();
+    //         return AdminPage();
+    //       },
+    //     ),
+    //     GoRoute(path: '/book', builder: (_, __) => const BookingPage()),
+    //     GoRoute(
+    //       path: '/menu',
+    //       builder: (context, state) {
+    //         final initial =
+    //             int.tryParse(state.uri.queryParameters['tab'] ?? '0') ?? 0;
+    //         return MenuPage(initialTab: initial);
+    //       },
+    //     ),
+    //     GoRoute(path: '/order', builder: (_, __) => const OrderPage()),
+    //     GoRoute(
+    //       path: '/admin',
+    //       builder: (context, state) {
+    //         ReservationsBinding().dependencies();
+    //         return AdminPage();
+    //       },
+    //     ),
+    //   ],
+    // );
     final router = GoRouter(
+      initialLocation: '/login',
+      refreshListenable: GoRouterRefreshStream(
+        FirebaseAuth.instance.authStateChanges(),
+      ),
+      redirect: (context, state) {
+        final authController = Get.find<AuthController>();
+
+        if (authController.isCheckingAuth.value) {
+          return null;
+        }
+
+        final isLoggedIn = authController.isLoggedIn;
+        final user = authController.user.value;
+        final isAdmin = user?.role == UserRole.admin;
+        final isStaff = user?.role == UserRole.staff;
+
+        final currentPath = state.matchedLocation;
+
+        // Protected routes - Cần login
+        final isProtected =
+            currentPath.startsWith('/admin') ||
+            currentPath == '/change-password';
+
+        // None login → redirect to login
+        if (!isLoggedIn && isProtected) {
+          return '/login';
+        }
+
+        // if logged, cant come to /forgot-password
+        if (isLoggedIn &&
+            (currentPath == '/login' || currentPath == '/forgot-password')) {
+          // Staff → redirect to reservations
+          // Admin → redirect to dashboard
+          return isStaff ? '/admin/reservations' : '/admin/dashboard';
+        }
+
+        // admin → redirect based on role
+        if (currentPath == '/admin' || currentPath == '/admin/') {
+          return isStaff ? '/admin/reservations' : '/admin/dashboard';
+        }
+
+        // Staff only redirect to /admin/reservations
+        if (isLoggedIn && isStaff) {
+          final staffForbiddenPaths = [
+            '/admin/dashboard',
+            '/admin/analytics',
+            '/admin/users',
+          ];
+
+          if (staffForbiddenPaths.any((path) => currentPath.startsWith(path))) {
+            return '/admin/reservations'; // Redirect to reservations
+          }
+        }
+
+        return null;
+      },
       routes: [
-        // GoRoute(path: '/', builder: (_, __) => const HomePage()),
+        // ===== AUTH ROUTES =====
         GoRoute(
-          path: '/',
-          builder: (context, state) {
-            ReservationsBinding().dependencies();
-            return AdminPage();
+          path: '/login',
+          builder: (context, state) => LoginPage(),
+          onExit: (context, state) {
+            Get.delete<LoginController>();
+            return true;
           },
         ),
+        GoRoute(
+          path: '/forgot-password',
+          builder: (context, state) => ForgotPasswordPage(),
+        ),
+        GoRoute(
+          path: '/change-password',
+          builder: (context, state) => ChangePasswordPage(),
+          onExit: (context, state) {
+            Get.delete<ChangePasswordController>();
+            return true;
+          },
+        ),
+
+        // ===== ADMIN ROUTES (Nested with ShellRoute) =====
+        ShellRoute(
+          builder: (context, state, child) {
+            return AdminShell(child: child);
+          },
+          routes: [
+            // Dashboard
+            GoRoute(
+              path: '/admin/dashboard',
+              builder: (context, state) => const DashboardPage(),
+            ),
+
+            // Reservations
+            GoRoute(
+              path: '/admin/reservations',
+              builder: (context, state) => const ReservationPage(),
+            ),
+
+            // Analytics
+            GoRoute(
+              path: '/admin/analytics',
+              builder: (context, state) => const AnalyticPage(),
+            ),
+
+            // Users
+            GoRoute(
+              path: '/admin/users',
+              builder: (context, state) => const UsersPage(),
+            ),
+          ],
+        ),
+
+        // ===== PUBLIC ROUTES =====
         GoRoute(path: '/book', builder: (_, __) => const BookingPage()),
         GoRoute(
           path: '/menu',
@@ -1002,13 +1168,6 @@ class ThreeSanhApp extends StatelessWidget {
           },
         ),
         GoRoute(path: '/order', builder: (_, __) => const OrderPage()),
-        GoRoute(
-          path: '/admin',
-          builder: (context, state) {
-            ReservationsBinding().dependencies();
-            return AdminPage();
-          },
-        ),
       ],
     );
 

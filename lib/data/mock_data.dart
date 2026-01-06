@@ -107,7 +107,9 @@ class MockDataGenerator {
     // Random từ -30 đến +60 ngày
     final daysOffset = _random.nextInt(90) - 30;
     final date = now.add(Duration(days: daysOffset));
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+    // ✅ Format: DD-MM-YYYY (match với app format)
+    return '${date.day.toString().padLeft(2, '0')}-${date.month.toString().padLeft(2, '0')}-${date.year}';
   }
 
   /// Generate giờ ngẫu nhiên (11:00 - 21:00)
