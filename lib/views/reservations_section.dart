@@ -267,7 +267,7 @@ class ReservationsSection extends StatelessWidget {
     try {
       final generator = MockDataGenerator();
       await generator.generateAndAddReservations(
-        count: 15,
+        count: 100,
         onProgress: (current, total) {
           // Optional: có thể log progress
           print('Progress: $current/$total');

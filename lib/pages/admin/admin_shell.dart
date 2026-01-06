@@ -174,7 +174,7 @@ class _Sidebar extends StatelessWidget {
           ),
           const SizedBox(height: 40),
 
-          // 🔥 Hiển thị menu theo role
+          // Hiển thị menu theo role
           for (final item in items)
             if (_canViewMenuItem(item, isAdmin))
               _SidebarItem(
